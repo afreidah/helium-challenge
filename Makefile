@@ -1,7 +1,5 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help fmt fmt-check validate-modules validate-terragrunt validate test ci
-
 # Directories
 MODULES_DIR ?= modules
 
@@ -14,15 +12,19 @@ NC := \033[0m
 
 ##@ General
 
-help: ## Show available targets for formatting, validation, and module tests
-	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make $(YELLOW)<target>$(NC)\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  $(BLUE)%-22s$(NC) %s\n", $$1, $$2 } /^##@/ { printf "\n$(GREEN)%s$(NC)\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+.PHONY: help fmt fmt-check validate-modules validate-terragrunt validate test ci checkov plan-all clean
+
+##@ General
+
+help: ## Show available targets for formatting, validation, tests, planning, and cleanup
+	@printf "\nUsage:\n  make $(YELLOW)<target>$(NC)\n"
+	@awk 'BEGIN {FS = ":.*##"} \
+		/^##@/ { printf "\n$(GREEN)%s$(NC)\n", substr($$0, 5); next } \
+		/^[a-zA-Z0-9_%-]+:.*##/ { printf "  $(BLUE)%-24s$(NC) %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 	@echo ""
-	@echo "$(YELLOW)Key targets:$(NC)"
-	@echo "  - fmt / fmt-check       : Format HCL (Terragrunt) and Terraform code"
-	@echo "  - validate-modules      : terraform validate for each module"
-	@echo "  - validate-terragrunt   : terragrunt validate-inputs for each live dir"
-	@echo "  - test                  : terraform test for each module"
-	@echo "  - ci                    : fmt-check + validate + test"
+	@echo "$(YELLOW)Common targets:$(NC)"
+	@printf "  $(BLUE)fmt$(NC), $(BLUE)fmt-check$(NC), $(BLUE)validate$(NC), $(BLUE)test$(NC), $(BLUE)plan-all$(NC), $(BLUE)checkov$(NC), $(BLUE)clean$(NC), $(BLUE)ci$(NC)\n"
+
 
 ##@ Code Quality
 
@@ -114,6 +116,31 @@ test: ## Run terraform test on all modules
 
 ##@ Workflows
 
+## Run Terragrunt plan across all environments
+plan-all:
+	@set -e; \
+	for env in staging production; do \
+	  echo "==> Running plan in $$env"; \
+	  (cd $$env && terragrunt --non-interactive run --all plan); \
+	done
+
 ci: fmt-check validate test ## Run formatting check, validation, and module tests
 	@echo "$(GREEN)✓ CI checks passed$(NC)"
+
+## Clean up Terraform/Terragrunt build artifacts and caches
+clean:
+	@echo "Cleaning Terraform and Terragrunt artifacts..."
+	@find . -type d -name ".terraform" -prune -exec rm -rf {} +
+	@find . -type d -name ".terragrunt-cache" -prune -exec rm -rf {} +
+	@find . -type f -name "*.tfstate" -delete
+	@find . -type f -name "*.tfstate.backup" -delete
+	@find . -type f -name "*.tfplan" -delete
+	@find . -type f -name "plan.json" -delete
+	@find . -type f -name ".terragrunt-source-version" -delete
+	@find . -type f -name ".checkov.yaml" -delete
+	@find . -type f -name ".trivy.yaml" -delete
+	@find . -type f -name ".trivyignore" -delete
+	@find . -type d -name ".checkov" -prune -exec rm -rf {} +
+	@find . -type f -name "debug.tfvars" -delete
+	@echo "Cleanup complete."
 

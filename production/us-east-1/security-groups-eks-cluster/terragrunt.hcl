@@ -1,12 +1,16 @@
 # -----------------------------------------------------------------------------
-# IAM ROLE ENVIRONMENT HELPER
+# SECURITY GROUP - EKS CLUSTER CONTROL PLANE
 # -----------------------------------------------------------------------------
-# This helper creates an IAM role with configuration defined in root.hcl.
-# Each environment component specifies which role config to use via inputs merge.
+# Creates security group for the EKS cluster control plane with rules allowing
+# HTTPS traffic from the VPC for kubectl access.
 # -----------------------------------------------------------------------------
 
-terraform {
-  source = "${get_repo_root()}/modules/iam-role"
+include "root" {
+  path = find_in_parent_folders("root.hcl")
+}
+
+include "security_groups" {
+  path = "${get_repo_root()}/_env_helpers/security-groups.hcl"
 }
 
 # -----------------------------------------------------------------------------
@@ -22,11 +26,5 @@ locals {
 # -----------------------------------------------------------------------------
 
 inputs = {
-  environment = local.root.inputs.environment
-  region      = local.root.inputs.region
-  
-  # This will be overridden by the environment-level inputs merge
-  role_config = {}
-  
-  tags = local.root.inputs.common_tags
+  security_group_rules = local.root.inputs.security_group_rules.eks_cluster
 }

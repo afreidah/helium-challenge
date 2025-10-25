@@ -11,14 +11,15 @@
 #
 # Usage:
 #   - role_arn: Reference in trust policies, resource policies, and IAM policies
-#   - role_name: Use in policy attachments and aws-auth ConfigMaps
+#   - role_name: Use in policy attachments and aws-auth ConfigMaps (EKS)
 #   - role_id: Unique identifier for CloudTrail and audit logs
-#   - instance_profile_name: Attach to EC2 launch templates or instances
+#   - instance_profile_name: Attach to EC2 launch templates or EKS node groups
 #   - instance_profile_arn: Reference in Auto Scaling Groups and launch configs
 #
 # Note:
 #   - Instance profile outputs are null when create_instance_profile = false
 #   - Role ARN format: arn:aws:iam::account-id:role/role-name
+#   - Role name is automatically prefixed with environment
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
@@ -46,10 +47,10 @@ output "role_id" {
 
 output "instance_profile_name" {
   description = "Name of the instance profile (if created)"
-  value       = var.create_instance_profile ? aws_iam_instance_profile.this[0].name : null
+  value       = var.role_config.create_instance_profile ? aws_iam_instance_profile.this[0].name : null
 }
 
 output "instance_profile_arn" {
   description = "ARN of the instance profile (if created)"
-  value       = var.create_instance_profile ? aws_iam_instance_profile.this[0].arn : null
+  value       = var.role_config.create_instance_profile ? aws_iam_instance_profile.this[0].arn : null
 }

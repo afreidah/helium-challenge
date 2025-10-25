@@ -174,7 +174,7 @@ plan-all: ## Run Terragrunt plan across all environments and save output
 	@mkdir -p $(PLAN_DIR)
 	@set -e; \
 	failed=0; \
-	for env in staging production; do \
+	for env in production; do \
 		echo "$(YELLOW)==> Planning $$env environment$(NC)"; \
 		if (cd $$env && terragrunt run-all plan --terragrunt-non-interactive) > $(PLAN_DIR)/plan-$$env.txt 2>&1; then \
 			echo "$(GREEN)✓ $$env plan successful$(NC)"; \

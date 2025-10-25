@@ -6,6 +6,10 @@
 # listeners, target groups, and security settings for routing HTTP/HTTPS
 # traffic to backend application instances.
 #
+# The ALB configuration is passed as a single object from root.hcl, making
+# it easy to define ALB templates centrally and deploy them consistently
+# across environments with automatic environment-based naming.
+#
 # Components Created:
 #   - Application Load Balancer: Layer 7 load balancer for HTTP/HTTPS traffic
 #   - Target Groups: Backend instance/IP pools for traffic distribution
@@ -13,6 +17,8 @@
 #   - HTTPS Listener: Optional port 443 listener with SSL/TLS termination
 #
 # Features:
+#   - Centralized ALB configuration in root.hcl
+#   - Automatic name prefixing with environment
 #   - Automatic HTTP to HTTPS redirect when certificate provided
 #   - Multiple target group support with independent health checks
 #   - Session stickiness configuration per target group
@@ -24,7 +30,7 @@
 # Security Model:
 #   - TLS 1.2 minimum policy for HTTPS listeners
 #   - Invalid header fields dropped by default
-#   - Security groups control inbound/outbound traffic
+#   - Security groups control inbound/outbound traffic (from dependency)
 #   - Optional WAF integration for application layer protection
 #
 # IMPORTANT:
@@ -32,36 +38,38 @@
 #   - Target groups support both instance and IP target types
 #   - Health checks are independent per target group
 #   - Deletion protection disabled by default for non-production flexibility
+#   - ALB name automatically prefixed with environment for uniqueness
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
 # APPLICATION LOAD BALANCER
 # -----------------------------------------------------------------------------
+# Load balancer for distributing HTTP/HTTPS traffic
+# Can be internet-facing or internal based on alb_config.internal setting
+# Name is automatically prefixed with environment
 
-# load balancer for distributing HTTP/HTTPS traffic
-# Can be internet-facing or internal based on var.internal setting
 resource "aws_lb" "this" {
   #tfsec:ignore:aws-elb-alb-not-public Intentional: Public ALB by design
-  name               = var.name
-  internal           = var.internal
+  name               = "${var.environment}-${var.alb_config.name_suffix}"
+  internal           = var.alb_config.internal
   load_balancer_type = "application"
-  security_groups    = var.security_group_ids
-  subnets            = var.subnet_ids
+  security_groups    = var.alb_config.security_group_ids
+  subnets            = var.alb_config.subnet_ids
 
-  enable_deletion_protection       = var.enable_deletion_protection
-  enable_http2                     = var.enable_http2
-  enable_cross_zone_load_balancing = var.enable_cross_zone_load_balancing
-  idle_timeout                     = var.idle_timeout
-  drop_invalid_header_fields       = var.drop_invalid_header_fields
+  enable_deletion_protection       = var.alb_config.enable_deletion_protection
+  enable_http2                     = var.alb_config.enable_http2
+  enable_cross_zone_load_balancing = var.alb_config.enable_cross_zone_load_balancing
+  idle_timeout                     = var.alb_config.idle_timeout
+  drop_invalid_header_fields       = var.alb_config.drop_invalid_header_fields
 
   # -------------------------------------------------------------------------
   # ACCESS LOGGING
   # -------------------------------------------------------------------------
   # Optional S3 access logs for request-level visibility
   dynamic "access_logs" {
-    for_each = var.access_logs_enabled && var.access_logs_bucket != null ? [1] : []
+    for_each = var.alb_config.access_logs_enabled && var.alb_config.access_logs_bucket != null ? [1] : []
     content {
-      bucket  = var.access_logs_bucket
+      bucket  = var.alb_config.access_logs_bucket
       enabled = true
     }
   }
@@ -69,20 +77,34 @@ resource "aws_lb" "this" {
   tags = merge(
     var.tags,
     {
-      Name = var.name
+      Name = "${var.environment}-${var.alb_config.name_suffix}"
     }
   )
 }
 
 # -----------------------------------------------------------------------------
+# WAF ASSOCIATION
+# -----------------------------------------------------------------------------
+# Associates Web Application Firewall with ALB if WAF ARN provided
+# Provides application layer protection against common exploits
+
+resource "aws_wafv2_web_acl_association" "this" {
+  for_each = var.alb_config.waf_web_acl_arn != null ? { waf = var.alb_config.waf_web_acl_arn } : {}
+
+  resource_arn = aws_lb.this.arn
+  web_acl_arn  = each.value
+}
+
+# -----------------------------------------------------------------------------
 # TARGET GROUPS
 # -----------------------------------------------------------------------------
-
 # Backend pools for routing traffic to application instances or IPs
 # Each target group has independent configuration and health checks
+# Names are automatically prefixed and truncated to 32 character limit
+
 resource "aws_lb_target_group" "this" {
-  for_each             = var.target_groups
-  name                 = trimsuffix(substr("${var.name}-${each.key}-tg", 0, 32), "-")
+  for_each             = var.alb_config.target_groups
+  name                 = trimsuffix(substr("${var.environment}-${var.alb_config.name_suffix}-${each.key}-tg", 0, 32), "-")
   port                 = each.value.port
   protocol             = each.value.protocol
   vpc_id               = var.vpc_id
@@ -121,7 +143,7 @@ resource "aws_lb_target_group" "this" {
   tags = merge(
     var.tags,
     {
-      Name = "${var.name}-${each.key}-tg"
+      Name = "${var.environment}-${var.alb_config.name_suffix}-${each.key}-tg"
     }
   )
 
@@ -133,11 +155,11 @@ resource "aws_lb_target_group" "this" {
 # -----------------------------------------------------------------------------
 # HTTP LISTENER (PORT 80)
 # -----------------------------------------------------------------------------
-
 # Handles all HTTP traffic on port 80
 # Behavior depends on certificate_arn:
 #   - With certificate: Redirects to HTTPS (301 permanent redirect)
 #   - Without certificate: Forwards directly to target group
+
 resource "aws_lb_listener" "http" {
   #tfsec:ignore:aws-elb-http-not-used HTTP redirects to HTTPS when certificate is provided
   #checkov:skip=CKV_AWS_2:HTTP listener redirects to HTTPS
@@ -151,7 +173,7 @@ resource "aws_lb_listener" "http" {
   # -------------------------------------------------------------------------
   # Used when certificate_arn is provided for secure communication
   dynamic "default_action" {
-    for_each = var.certificate_arn != null ? [1] : []
+    for_each = var.alb_config.certificate_arn != null ? [1] : []
     content {
       type = "redirect"
       redirect {
@@ -167,10 +189,10 @@ resource "aws_lb_listener" "http" {
   # -------------------------------------------------------------------------
   # Used when certificate_arn is null (HTTP-only configuration)
   dynamic "default_action" {
-    for_each = var.certificate_arn == null ? [1] : []
+    for_each = var.alb_config.certificate_arn == null ? [1] : []
     content {
       type             = "forward"
-      target_group_arn = length(var.target_groups) > 0 ? aws_lb_target_group.this[keys(var.target_groups)[0]].arn : null
+      target_group_arn = length(var.alb_config.target_groups) > 0 ? aws_lb_target_group.this[keys(var.alb_config.target_groups)[0]].arn : null
     }
   }
 
@@ -180,21 +202,21 @@ resource "aws_lb_listener" "http" {
 # -----------------------------------------------------------------------------
 # HTTPS LISTENER (PORT 443)
 # -----------------------------------------------------------------------------
-
 # Handles HTTPS traffic with SSL/TLS termination
 # Only created when certificate_arn is provided
+
 resource "aws_lb_listener" "https" {
-  count = var.certificate_arn != null ? 1 : 0
+  for_each = var.alb_config.certificate_arn != null ? { https = var.alb_config.certificate_arn } : {}
 
   load_balancer_arn = aws_lb.this.arn
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS-1-2-2017-01"
-  certificate_arn   = var.certificate_arn
+  certificate_arn   = each.value
 
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.this[keys(var.target_groups)[0]].arn
+    target_group_arn = aws_lb_target_group.this[keys(var.alb_config.target_groups)[0]].arn
   }
 
   tags = var.tags

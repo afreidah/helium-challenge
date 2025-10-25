@@ -3,9 +3,12 @@
 # -----------------------------------------------------------------------------
 #
 # This module creates an AWS IAM role with configurable trust policy, managed
-# policy attachments, and optional EC2 instance profile. It provides a
-# reusable pattern for creating service roles with proper permissions and
-# trust relationships.
+# policy attachments, and optional EC2 instance profile. Designed for EKS
+# cluster and node roles with appropriate trust relationships and permissions.
+#
+# The role configuration is passed as a single object from root.hcl, making
+# it easy to define role templates centrally and deploy them consistently
+# across environments with automatic environment-based naming.
 #
 # Components Created:
 #   - IAM Role: Identity with trust policy for AWS services or users
@@ -13,14 +16,16 @@
 #   - Instance Profile: Optional EC2 instance profile for role attachment
 #
 # Features:
-#   - Flexible trust policy via assume_role_policy parameter
+#   - Centralized role configuration in root.hcl
+#   - Automatic name prefixing with environment
 #   - Multiple managed policy attachments support
-#   - Optional instance profile for EC2 use cases
+#   - Optional instance profile for EC2/EKS node use cases
 #   - Consistent tagging across all resources
 #   - Supports any AWS service principal
 #
 # Common Use Cases:
-#   - EC2 Instance Roles: Attach to instances via instance profile
+#   - EKS Cluster Roles: Control plane permissions and service integration
+#   - EKS Node Roles: Worker node permissions with instance profile
 #   - Lambda Execution Roles: Grant Lambda function permissions
 #   - ECS Task Roles: Provide permissions to containerized applications
 #   - Cross-Account Roles: Enable cross-account access patterns
@@ -35,24 +40,26 @@
 # IMPORTANT:
 #   - Trust policy must be valid JSON and include sts:AssumeRole action
 #   - Policy ARNs must exist before attachment
-#   - Instance profile only needed for EC2 use cases
-#   - Role name must be unique within AWS account
+#   - Instance profile only needed for EC2/EKS node use cases
+#   - Role name automatically prefixed with environment for uniqueness
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
 # IAM ROLE
 # -----------------------------------------------------------------------------
-
 # IAM role with configurable trust policy
 # Defines identity that can be assumed by specified principals
+# Name is automatically prefixed with environment
+
 resource "aws_iam_role" "this" {
-  name               = var.name
-  assume_role_policy = var.assume_role_policy
+  name               = "${var.environment}-${var.role_config.name_suffix}"
+  description        = var.role_config.description
+  assume_role_policy = var.role_config.assume_role_policy
 
   tags = merge(
     var.tags,
     {
-      Name = var.name
+      Name = "${var.environment}-${var.role_config.name_suffix}"
     }
   )
 }
@@ -60,32 +67,34 @@ resource "aws_iam_role" "this" {
 # -----------------------------------------------------------------------------
 # MANAGED POLICY ATTACHMENTS
 # -----------------------------------------------------------------------------
-
 # Attach AWS managed or customer managed policies to role
 # Grants permissions defined in the policies to role principals
+# Uses for_each for better resource management
+
 resource "aws_iam_role_policy_attachment" "this" {
-  count = length(var.policy_arns)
+  for_each = toset(var.role_config.policy_arns)
 
   role       = aws_iam_role.this.name
-  policy_arn = var.policy_arns[count.index]
+  policy_arn = each.value
 }
 
 # -----------------------------------------------------------------------------
 # INSTANCE PROFILE (EC2)
 # -----------------------------------------------------------------------------
-
-# Instance profile for attaching role to EC2 instances
+# Instance profile for attaching role to EC2 instances (EKS nodes)
 # Only created when create_instance_profile is true
-resource "aws_iam_instance_profile" "this" {
-  count = var.create_instance_profile ? 1 : 0
+# Name matches role name for consistency
 
-  name = var.name
+resource "aws_iam_instance_profile" "this" {
+  count = var.role_config.create_instance_profile ? 1 : 0
+
+  name = "${var.environment}-${var.role_config.name_suffix}"
   role = aws_iam_role.this.name
 
   tags = merge(
     var.tags,
     {
-      Name = var.name
+      Name = "${var.environment}-${var.role_config.name_suffix}"
     }
   )
 }

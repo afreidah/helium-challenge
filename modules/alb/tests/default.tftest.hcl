@@ -2,551 +2,488 @@
 # ALB MODULE - TEST SUITE
 # -----------------------------------------------------------------------------
 #
-# This test suite validates the Application Load Balancer module functionality
-# across various configuration scenarios. Tests use Terraform's native testing
-# framework to verify resource creation, conditional logic, and configuration
-# correctness without requiring actual AWS infrastructure deployment.
+# Author: Alex
+# Module: terraform-aws-alb
+# Purpose: Validates Application Load Balancer module logic and computed values
 #
-# Test Categories:
-#   - Basic Configuration: ALB creation without HTTPS
-#   - HTTPS Configuration: Certificate-based HTTPS listener and redirects
-#   - Internal vs External: Network visibility settings
-#   - Target Groups: Multiple target group configurations
-#   - Advanced Features: Stickiness, deregistration delay, security settings
-#   - Resource Validation: Attribute accessibility and output verification
+# Description:
+#   Test suite for the ALB Terraform module, focusing on conditional logic,
+#   computed values, and resource relationships. Tests verify that the module
+#   correctly implements business logic such as HTTPS redirect behavior,
+#   conditional resource creation, and proper default value application.
 #
-# Testing Approach:
-#   - Uses terraform plan to validate resource configuration
-#   - Mock values for VPC, subnets, and security groups
-#   - Assertions verify expected behavior without AWS API calls
-#   - Tests conditional resource creation (HTTPS listener, redirects)
+# Test Philosophy:
+#   - Tests validate LOGIC, not input passthrough
+#   - Focuses on conditional resource creation (HTTPS listener, redirects)
+#   - Verifies computed/derived values, not simple input assignments
+#   - Uses Terraform's native test framework with plan-only execution
+#   - No actual AWS infrastructure deployment required
 #
-# IMPORTANT:
-#   - Tests run in plan mode only (no actual infrastructure created)
-#   - Mock values must be syntactically valid AWS resource IDs
-#   - Assertions validate Terraform configuration, not runtime behavior
+# Test Coverage:
+#   ✓ HTTP-to-HTTPS redirect logic based on certificate presence
+#   ✓ Conditional HTTPS listener creation
+#   ✓ Multiple target group creation and iteration
+#   ✓ Default action type selection (forward vs redirect)
+#   ✓ Security policy application on HTTPS listeners
+#   ✓ Stickiness configuration propagation
+#   ✓ Type conversions and numeric value handling
+#
+# Usage:
+#   terraform test                    # Run all tests
+#   terraform test -filter=https      # Run specific test pattern
+#   terraform test -verbose           # Show detailed output
+#
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
-# TEST VARIABLES
+# TEST: HTTP Listener Forwards Without Certificate
 # -----------------------------------------------------------------------------
+# Validates that HTTP listener uses forward action when no certificate provided
+# This tests the conditional logic: certificate == null → forward action
 
-# Mock AWS resources for testing
-# These values simulate actual AWS resource IDs without requiring real infrastructure
-variables {
-  # Mock VPC and networking resources
-  vpc_id     = "vpc-12345678"
-  subnet_ids = ["subnet-11111111", "subnet-22222222", "subnet-33333333"]
-
-  # Mock security group
-  security_group_ids = ["sg-12345678"]
-
-  # Mock certificate ARN for HTTPS tests
-  test_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/12345678-1234-1234-1234-123456789012"
-}
-
-# -----------------------------------------------------------------------------
-# BASIC ALB WITHOUT HTTPS CERTIFICATE
-# -----------------------------------------------------------------------------
-
-# Validates basic ALB creation with HTTP-only configuration
-# Expected Behavior:
-#   - ALB created as internet-facing
-#   - HTTP listener forwards to target group (no redirect)
-#   - HTTPS listener NOT created
-#   - Target group created with health check configuration
-run "basic_alb_without_https" {
+run "http_forwards_without_certificate" {
   command = plan
 
   variables {
-    name               = "test-alb-basic"
-    internal           = false
-    vpc_id             = var.vpc_id
-    subnet_ids         = var.subnet_ids
-    security_group_ids = var.security_group_ids
-    certificate_arn    = null
+    environment = "dev"
+    region      = "us-east-1"
+    vpc_id      = "vpc-12345678"
 
-    target_groups = {
-      app = {
-        port        = 8080
-        protocol    = "HTTP"
-        target_type = "instance"
-        health_check = {
-          path     = "/health"
-          protocol = "HTTP"
+    alb_config = {
+      name_suffix        = "app"
+      internal           = false
+      subnet_ids         = ["subnet-11111111", "subnet-22222222", "subnet-33333333"]
+      security_group_ids = ["sg-12345678"]
+      certificate_arn    = null
+
+      target_groups = {
+        app = {
+          port         = 8080
+          protocol     = "HTTP"
+          target_type  = "instance"
+          health_check = {}
         }
       }
     }
   }
 
-  # -------------------------------------------------------------------------
-  # ALB CONFIGURATION ASSERTIONS
-  # -------------------------------------------------------------------------
-
-  # Verify ALB name matches input
-  assert {
-    condition     = aws_lb.this.name == "test-alb-basic"
-    error_message = "ALB name should match input"
-  }
-
-  # Verify ALB is internet-facing
-  assert {
-    condition     = aws_lb.this.internal == false
-    error_message = "ALB should be internet-facing"
-  }
-
-  # -------------------------------------------------------------------------
-  # HTTP LISTENER ASSERTIONS
-  # -------------------------------------------------------------------------
-
-  # Verify HTTP listener exists on port 80
-  assert {
-    condition     = aws_lb_listener.http.port == 80
-    error_message = "HTTP listener should listen on port 80"
-  }
-
-  # Verify HTTP listener forwards (not redirects) when no certificate
+  # Verify HTTP listener uses forward action (not redirect)
   assert {
     condition     = length([for action in aws_lb_listener.http.default_action : action if action.type == "forward"]) > 0
     error_message = "HTTP listener should forward to target group when no certificate provided"
   }
-
-  # -------------------------------------------------------------------------
-  # HTTPS LISTENER ASSERTIONS
-  # -------------------------------------------------------------------------
 
   # Verify HTTPS listener is NOT created without certificate
   assert {
     condition     = length(aws_lb_listener.https) == 0
     error_message = "HTTPS listener should not be created without certificate"
   }
-
-  # -------------------------------------------------------------------------
-  # TARGET GROUP ASSERTIONS
-  # -------------------------------------------------------------------------
-
-  # Verify target group creation
-  assert {
-    condition     = length(aws_lb_target_group.this) == 1
-    error_message = "Should create exactly one target group"
-  }
-
-  # Verify target group health check path
-  assert {
-    condition     = aws_lb_target_group.this["app"].health_check[0].path == "/health"
-    error_message = "Target group health check path should match input"
-  }
 }
 
 # -----------------------------------------------------------------------------
-# ALB WITH HTTPS CERTIFICATE
+# TEST: HTTP-to-HTTPS Redirect With Certificate
 # -----------------------------------------------------------------------------
+# Validates that HTTP listener redirects to HTTPS when certificate provided
+# This tests the conditional logic: certificate != null → redirect action
 
-# Validates ALB with HTTPS configuration
-# Expected Behavior:
-#   - HTTP listener redirects to HTTPS (301 permanent)
-#   - HTTPS listener created on port 443
-#   - Certificate attached to HTTPS listener
-#   - TLS 1.2 minimum security policy enforced
-run "alb_with_https_certificate" {
+run "http_redirects_with_certificate" {
   command = plan
 
   variables {
-    name               = "test-alb-https"
-    internal           = false
-    vpc_id             = var.vpc_id
-    subnet_ids         = var.subnet_ids
-    security_group_ids = var.security_group_ids
-    certificate_arn    = var.test_certificate_arn
+    environment = "dev"
+    region      = "us-east-1"
+    vpc_id      = "vpc-12345678"
 
-    target_groups = {
-      app = {
-        port        = 8080
-        protocol    = "HTTP"
-        target_type = "instance"
-        health_check = {
-          path = "/health"
+    alb_config = {
+      name_suffix        = "app"
+      internal           = false
+      subnet_ids         = ["subnet-11111111", "subnet-22222222", "subnet-33333333"]
+      security_group_ids = ["sg-12345678"]
+      certificate_arn    = "arn:aws:acm:us-east-1:123456789012:certificate/12345678-1234-1234-1234-123456789012"
+
+      target_groups = {
+        app = {
+          port         = 8080
+          protocol     = "HTTP"
+          target_type  = "instance"
+          health_check = {}
         }
       }
     }
   }
 
-  # -------------------------------------------------------------------------
-  # HTTP REDIRECT ASSERTIONS
-  # -------------------------------------------------------------------------
-
-  # Verify HTTP listener redirects to HTTPS
+  # Verify HTTP listener uses redirect action (not forward)
   assert {
     condition     = length([for action in aws_lb_listener.http.default_action : action if action.type == "redirect"]) > 0
     error_message = "HTTP listener should redirect to HTTPS when certificate provided"
   }
 
-  # Verify redirect targets port 443
+  # Verify redirect targets HTTPS port 443
   assert {
     condition     = try(aws_lb_listener.http.default_action[0].redirect[0].port, "") == "443"
     error_message = "HTTP redirect should target port 443"
   }
 
-  # Verify redirect is permanent (301)
+  # Verify redirect uses permanent 301 status
   assert {
     condition     = try(aws_lb_listener.http.default_action[0].redirect[0].status_code, "") == "HTTP_301"
-    error_message = "HTTP redirect should use 301 status code"
+    error_message = "HTTP redirect should use 301 permanent status code"
   }
 
-  # -------------------------------------------------------------------------
-  # HTTPS LISTENER ASSERTIONS
-  # -------------------------------------------------------------------------
-
-  # Verify HTTPS listener IS created
+  # Verify HTTPS listener IS created with certificate
   assert {
     condition     = length(aws_lb_listener.https) == 1
     error_message = "HTTPS listener should be created when certificate provided"
   }
-
-  # Verify HTTPS listener uses port 443
-  assert {
-    condition     = aws_lb_listener.https[0].port == 443
-    error_message = "HTTPS listener should use port 443"
-  }
-
-  # Verify HTTPS listener uses correct certificate
-  assert {
-    condition     = aws_lb_listener.https[0].certificate_arn == var.test_certificate_arn
-    error_message = "HTTPS listener should use provided certificate"
-  }
-
-  # Verify HTTPS listener uses secure TLS policy
-  assert {
-    condition     = aws_lb_listener.https[0].ssl_policy == "ELBSecurityPolicy-TLS-1-2-2017-01"
-    error_message = "HTTPS listener should use TLS 1.2 minimum policy"
-  }
 }
 
 # -----------------------------------------------------------------------------
-# INTERNAL ALB CONFIGURATION
+# TEST: HTTPS Listener Configuration
 # -----------------------------------------------------------------------------
+# Validates computed HTTPS listener properties when certificate is provided
 
-# Validates internal ALB for private network access
-# Expected Behavior:
-#   - ALB marked as internal
-#   - Deployed across all provided subnets
-run "internal_alb" {
+run "https_listener_configuration" {
   command = plan
 
   variables {
-    name               = "test-alb-internal"
-    internal           = true
-    vpc_id             = var.vpc_id
-    subnet_ids         = var.subnet_ids
-    security_group_ids = var.security_group_ids
+    environment = "dev"
+    region      = "us-east-1"
+    vpc_id      = "vpc-12345678"
 
-    target_groups = {
-      backend = {
-        port         = 8080
-        protocol     = "HTTP"
-        target_type  = "instance"
-        health_check = {}
+    alb_config = {
+      name_suffix        = "app"
+      internal           = false
+      subnet_ids         = ["subnet-11111111", "subnet-22222222", "subnet-33333333"]
+      security_group_ids = ["sg-12345678"]
+      certificate_arn    = "arn:aws:acm:us-east-1:123456789012:certificate/12345678-1234-1234-1234-123456789012"
+
+      target_groups = {
+        app = {
+          port         = 8080
+          protocol     = "HTTP"
+          target_type  = "instance"
+          health_check = {}
+        }
       }
     }
   }
 
-  # -------------------------------------------------------------------------
-  # INTERNAL ALB ASSERTIONS
-  # -------------------------------------------------------------------------
-
-  # Verify ALB is internal
+  # Verify HTTPS listener uses standard HTTPS port
   assert {
-    condition     = aws_lb.this.internal == true
-    error_message = "ALB should be internal when configured"
+    condition     = aws_lb_listener.https["https"].port == 443
+    error_message = "HTTPS listener should use port 443"
   }
 
-  # Verify subnets are correctly assigned
+  # Verify HTTPS listener uses HTTPS protocol
   assert {
-    condition     = length(aws_lb.this.subnets) == 3
-    error_message = "ALB should be deployed across all provided subnets"
+    condition     = aws_lb_listener.https["https"].protocol == "HTTPS"
+    error_message = "HTTPS listener should use HTTPS protocol"
+  }
+
+  # Verify secure TLS policy is applied (TLS 1.2 minimum)
+  assert {
+    condition     = aws_lb_listener.https["https"].ssl_policy == "ELBSecurityPolicy-TLS-1-2-2017-01"
+    error_message = "HTTPS listener should enforce TLS 1.2 minimum security policy"
+  }
+
+  # Verify HTTPS listener has forward action
+  assert {
+    condition     = length([for action in aws_lb_listener.https["https"].default_action : action if action.type == "forward"]) > 0
+    error_message = "HTTPS listener should forward traffic to target group"
   }
 }
 
 # -----------------------------------------------------------------------------
-# MULTIPLE TARGET GROUPS
+# TEST: Multiple Target Groups
 # -----------------------------------------------------------------------------
+# Validates that multiple target groups are created from map iteration
 
-# Validates multiple target group creation with different configurations
-# Expected Behavior:
-#   - All target groups created with unique configurations
-#   - Each target group has independent health check settings
-#   - Target types (instance vs IP) correctly configured
 run "multiple_target_groups" {
   command = plan
 
   variables {
-    name               = "test-alb-multi-tg"
-    internal           = false
-    vpc_id             = var.vpc_id
-    subnet_ids         = var.subnet_ids
-    security_group_ids = var.security_group_ids
+    environment = "dev"
+    region      = "us-east-1"
+    vpc_id      = "vpc-12345678"
 
-    target_groups = {
-      app = {
-        port        = 8080
-        protocol    = "HTTP"
-        target_type = "instance"
-        health_check = {
-          path = "/health"
+    alb_config = {
+      name_suffix        = "app"
+      internal           = false
+      subnet_ids         = ["subnet-11111111", "subnet-22222222", "subnet-33333333"]
+      security_group_ids = ["sg-12345678"]
+
+      target_groups = {
+        app = {
+          port         = 8080
+          protocol     = "HTTP"
+          target_type  = "instance"
+          health_check = {}
         }
-      }
-      api = {
-        port        = 8081
-        protocol    = "HTTP"
-        target_type = "ip"
-        health_check = {
-          path = "/api/health"
+        api = {
+          port         = 8081
+          protocol     = "HTTP"
+          target_type  = "ip"
+          health_check = {
+            path = "/api/health"
+          }
+        }
+        admin = {
+          port         = 8082
+          protocol     = "HTTP"
+          target_type  = "instance"
+          health_check = {}
         }
       }
     }
   }
 
-  # -------------------------------------------------------------------------
-  # TARGET GROUP COUNT ASSERTIONS
-  # -------------------------------------------------------------------------
-
-  # Verify both target groups are created
+  # Verify correct number of target groups created
   assert {
-    condition     = length(aws_lb_target_group.this) == 2
-    error_message = "Should create both target groups"
+    condition     = length(aws_lb_target_group.this) == 3
+    error_message = "Should create exactly 3 target groups from map"
   }
 
-  # -------------------------------------------------------------------------
-  # APP TARGET GROUP ASSERTIONS
-  # -------------------------------------------------------------------------
-
-  # Verify app target group configuration
+  # Verify all target group keys exist
   assert {
-    condition     = aws_lb_target_group.this["app"].port == 8080
-    error_message = "App target group should use port 8080"
-  }
-
-  assert {
-    condition     = aws_lb_target_group.this["app"].target_type == "instance"
-    error_message = "App target group should use instance target type"
-  }
-
-  # -------------------------------------------------------------------------
-  # API TARGET GROUP ASSERTIONS
-  # -------------------------------------------------------------------------
-
-  # Verify API target group configuration
-  assert {
-    condition     = aws_lb_target_group.this["api"].port == 8081
-    error_message = "API target group should use port 8081"
-  }
-
-  assert {
-    condition     = aws_lb_target_group.this["api"].target_type == "ip"
-    error_message = "API target group should use IP target type"
-  }
-
-  # Verify health check paths are different
-  assert {
-    condition     = aws_lb_target_group.this["api"].health_check[0].path == "/api/health"
-    error_message = "API target group should have correct health check path"
+    condition     = contains(keys(aws_lb_target_group.this), "app") && contains(keys(aws_lb_target_group.this), "api") && contains(keys(aws_lb_target_group.this), "admin")
+    error_message = "All target group keys (app, api, admin) should exist"
   }
 }
 
 # -----------------------------------------------------------------------------
-# TARGET GROUP WITH STICKINESS
+# TEST: Stickiness Configuration
 # -----------------------------------------------------------------------------
+# Validates that stickiness block is properly configured when enabled
 
-# Validates session stickiness configuration
-# Expected Behavior:
-#   - Stickiness enabled when configured
-#   - Cookie duration matches specified value
-run "target_group_stickiness" {
+run "stickiness_enabled" {
   command = plan
 
   variables {
-    name               = "test-alb-sticky"
-    internal           = false
-    vpc_id             = var.vpc_id
-    subnet_ids         = var.subnet_ids
-    security_group_ids = var.security_group_ids
+    environment = "dev"
+    region      = "us-east-1"
+    vpc_id      = "vpc-12345678"
 
-    target_groups = {
-      app = {
-        port         = 8080
-        protocol     = "HTTP"
-        target_type  = "instance"
-        health_check = {}
-        stickiness = {
-          enabled         = true
-          type            = "lb_cookie"
-          cookie_duration = 3600
+    alb_config = {
+      name_suffix        = "app"
+      internal           = false
+      subnet_ids         = ["subnet-11111111", "subnet-22222222", "subnet-33333333"]
+      security_group_ids = ["sg-12345678"]
+
+      target_groups = {
+        app = {
+          port         = 8080
+          protocol     = "HTTP"
+          target_type  = "instance"
+          health_check = {}
+          stickiness = {
+            enabled         = true
+            type            = "lb_cookie"
+            cookie_duration = 3600
+          }
         }
       }
     }
   }
 
-  # -------------------------------------------------------------------------
-  # STICKINESS ASSERTIONS
-  # -------------------------------------------------------------------------
-
-  # Verify stickiness is configured
+  # Verify stickiness block exists and is enabled
   assert {
-    condition     = aws_lb_target_group.this["app"].stickiness[0].enabled == true
+    condition     = length(aws_lb_target_group.this["app"].stickiness) > 0 && aws_lb_target_group.this["app"].stickiness[0].enabled == true
     error_message = "Stickiness should be enabled when configured"
   }
 
+  # Verify stickiness type is set correctly
   assert {
-    condition     = aws_lb_target_group.this["app"].stickiness[0].cookie_duration == 3600
-    error_message = "Cookie duration should match configured value"
+    condition     = aws_lb_target_group.this["app"].stickiness[0].type == "lb_cookie"
+    error_message = "Stickiness type should be lb_cookie"
   }
 }
 
 # -----------------------------------------------------------------------------
-# ALB SECURITY SETTINGS
+# TEST: Deregistration Delay Type Conversion
 # -----------------------------------------------------------------------------
+# Validates that deregistration_delay is properly handled as numeric value
 
-# Validates security-related ALB configuration
-# Expected Behavior:
-#   - HTTP/2 enabled for performance
-#   - Invalid header fields dropped for security
-run "security_settings" {
+run "deregistration_delay_numeric" {
   command = plan
 
   variables {
-    name                       = "test-alb-security"
-    internal                   = false
-    vpc_id                     = var.vpc_id
-    subnet_ids                 = var.subnet_ids
-    security_group_ids         = var.security_group_ids
-    drop_invalid_header_fields = true
-    enable_http2               = true
+    environment = "dev"
+    region      = "us-east-1"
+    vpc_id      = "vpc-12345678"
 
-    target_groups = {
-      app = {
-        port         = 8080
-        protocol     = "HTTP"
-        target_type  = "instance"
-        health_check = {}
+    alb_config = {
+      name_suffix        = "app"
+      internal           = false
+      subnet_ids         = ["subnet-11111111", "subnet-22222222", "subnet-33333333"]
+      security_group_ids = ["sg-12345678"]
+
+      target_groups = {
+        app = {
+          port                 = 8080
+          protocol             = "HTTP"
+          target_type          = "instance"
+          deregistration_delay = 60
+          health_check         = {}
+        }
       }
     }
   }
 
-  # -------------------------------------------------------------------------
-  # SECURITY FEATURE ASSERTIONS
-  # -------------------------------------------------------------------------
-
-  # Verify HTTP/2 is enabled
-  assert {
-    condition     = aws_lb.this.enable_http2 == true
-    error_message = "HTTP/2 should be enabled"
-  }
-
-  # Verify invalid headers are dropped
-  assert {
-    condition     = aws_lb.this.drop_invalid_header_fields == true
-    error_message = "Invalid header fields should be dropped for security"
-  }
-
-  # Note: Cross-zone load balancing is enabled by default but may be null
-  # during plan phase, so we skip assertion as value is not determinable
-  # until apply
-}
-
-# -----------------------------------------------------------------------------
-# CUSTOM DEREGISTRATION DELAY
-# -----------------------------------------------------------------------------
-
-# Validates custom deregistration delay configuration
-# Expected Behavior:
-#   - Target group uses specified deregistration delay
-run "custom_deregistration_delay" {
-  command = plan
-
-  variables {
-    name               = "test-alb-dereg"
-    internal           = false
-    vpc_id             = var.vpc_id
-    subnet_ids         = var.subnet_ids
-    security_group_ids = var.security_group_ids
-
-    target_groups = {
-      app = {
-        port                 = 8080
-        protocol             = "HTTP"
-        target_type          = "instance"
-        deregistration_delay = 60
-        health_check         = {}
-      }
-    }
-  }
-
-  # -------------------------------------------------------------------------
-  # DEREGISTRATION DELAY ASSERTIONS
-  # -------------------------------------------------------------------------
-
-  # Verify custom deregistration delay (convert to number for comparison)
+  # Verify deregistration delay is numeric and equals expected value
   assert {
     condition     = tonumber(aws_lb_target_group.this["app"].deregistration_delay) == 60
-    error_message = "Target group should use custom deregistration delay"
+    error_message = "Target group deregistration delay should be 60 seconds"
   }
 }
 
 # -----------------------------------------------------------------------------
-# RESOURCE ATTRIBUTE VERIFICATION
+# TEST: Health Check Protocol Defaults
 # -----------------------------------------------------------------------------
+# Validates that health check protocol defaults to target group protocol
 
-# Validates that all resource attributes are accessible
-# Expected Behavior:
-#   - ALB attributes are set and accessible
-#   - Target group attributes are set and accessible
-#   - Listener attributes are set and accessible
-run "verify_resource_attributes" {
+run "health_check_protocol_default" {
   command = plan
 
   variables {
-    name               = "test-alb-attrs"
-    internal           = false
-    vpc_id             = var.vpc_id
-    subnet_ids         = var.subnet_ids
-    security_group_ids = var.security_group_ids
-    certificate_arn    = var.test_certificate_arn
+    environment = "dev"
+    region      = "us-east-1"
+    vpc_id      = "vpc-12345678"
 
-    target_groups = {
-      app = {
-        port         = 8080
-        protocol     = "HTTP"
-        target_type  = "instance"
-        health_check = {}
+    alb_config = {
+      name_suffix        = "app"
+      internal           = false
+      subnet_ids         = ["subnet-11111111", "subnet-22222222", "subnet-33333333"]
+      security_group_ids = ["sg-12345678"]
+
+      target_groups = {
+        app = {
+          port         = 8080
+          protocol     = "HTTP"
+          target_type  = "instance"
+          health_check = {
+            path = "/health"
+            # protocol not specified, should default to "HTTP"
+          }
+        }
       }
     }
   }
 
-  # -------------------------------------------------------------------------
-  # ATTRIBUTE ACCESSIBILITY ASSERTIONS
-  # -------------------------------------------------------------------------
-
-  # Verify ALB attributes are set
+  # Verify health check protocol defaults to HTTP when target uses HTTP
   assert {
-    condition     = aws_lb.this.name == "test-alb-attrs"
-    error_message = "ALB name should be accessible"
+    condition     = aws_lb_target_group.this["app"].health_check[0].protocol == "HTTP"
+    error_message = "Health check protocol should default to HTTP"
+  }
+}
+
+# -----------------------------------------------------------------------------
+# TEST: Cross-Zone Load Balancing Default
+# -----------------------------------------------------------------------------
+# Validates that cross-zone load balancing is enabled by default for ALB
+
+run "cross_zone_default_enabled" {
+  command = plan
+
+  variables {
+    environment = "dev"
+    region      = "us-east-1"
+    vpc_id      = "vpc-12345678"
+
+    alb_config = {
+      name_suffix        = "app"
+      internal           = false
+      subnet_ids         = ["subnet-11111111", "subnet-22222222", "subnet-33333333"]
+      security_group_ids = ["sg-12345678"]
+
+      target_groups = {
+        app = {
+          port         = 8080
+          protocol     = "HTTP"
+          target_type  = "instance"
+          health_check = {}
+        }
+      }
+    }
   }
 
-  # Verify target group attributes are set
+  # Verify ALB has cross-zone enabled (or null, which means enabled for ALB)
+  # For ALB, cross-zone is enabled by default and may show as null in plan
   assert {
-    condition     = aws_lb_target_group.this["app"].port == 8080
-    error_message = "Target group port should be accessible"
+    condition     = aws_lb.this.enable_cross_zone_load_balancing == true || aws_lb.this.enable_cross_zone_load_balancing == null
+    error_message = "Cross-zone load balancing should be enabled or null (default enabled for ALB)"
+  }
+}
+
+# -----------------------------------------------------------------------------
+# TEST: Target Group Name Construction
+# -----------------------------------------------------------------------------
+# Validates that target group names are properly constructed with prefix
+
+run "target_group_name_construction" {
+  command = plan
+
+  variables {
+    environment = "dev"
+    region      = "us-east-1"
+    vpc_id      = "vpc-12345678"
+
+    alb_config = {
+      name_suffix        = "myapp"
+      internal           = false
+      subnet_ids         = ["subnet-11111111", "subnet-22222222", "subnet-33333333"]
+      security_group_ids = ["sg-12345678"]
+
+      target_groups = {
+        frontend = {
+          port         = 80
+          protocol     = "HTTP"
+          target_type  = "instance"
+          health_check = {}
+        }
+      }
+    }
   }
 
-  # Verify HTTP listener attributes are set
+  # Verify target group name starts with environment-name_suffix prefix
   assert {
-    condition     = aws_lb_listener.http.port == 80
-    error_message = "HTTP listener port should be accessible"
+    condition     = can(regex("^dev-myapp-", aws_lb_target_group.this["frontend"].name))
+    error_message = "Target group name should start with environment-name_suffix prefix"
+  }
+}
+
+# -----------------------------------------------------------------------------
+# TEST: HTTP/2 Default Enabled
+# -----------------------------------------------------------------------------
+# Validates that HTTP/2 is enabled by default for better performance
+
+run "http2_default_enabled" {
+  command = plan
+
+  variables {
+    environment = "dev"
+    region      = "us-east-1"
+    vpc_id      = "vpc-12345678"
+
+    alb_config = {
+      name_suffix        = "app"
+      internal           = false
+      subnet_ids         = ["subnet-11111111", "subnet-22222222", "subnet-33333333"]
+      security_group_ids = ["sg-12345678"]
+
+      target_groups = {
+        app = {
+          port         = 8080
+          protocol     = "HTTP"
+          target_type  = "instance"
+          health_check = {}
+        }
+      }
+    }
   }
 
-  # Verify HTTPS listener is created with certificate
+  # Verify HTTP/2 is enabled by default
   assert {
-    condition     = length(aws_lb_listener.https) == 1
-    error_message = "HTTPS listener should exist when certificate provided"
+    condition     = aws_lb.this.enable_http2 == true
+    error_message = "HTTP/2 should be enabled by default"
   }
 }

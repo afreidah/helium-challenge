@@ -1,12 +1,16 @@
 # -----------------------------------------------------------------------------
-# IAM ROLE ENVIRONMENT HELPER
+# IAM ROLE - EKS NODE
 # -----------------------------------------------------------------------------
-# This helper creates an IAM role with configuration defined in root.hcl.
-# Each environment component specifies which role config to use via inputs merge.
+# Creates IAM role for EKS worker nodes with permissions to join the cluster,
+# pull container images, and communicate with AWS services.
 # -----------------------------------------------------------------------------
 
-terraform {
-  source = "${get_repo_root()}/modules/iam-role"
+include "root" {
+  path = find_in_parent_folders("root.hcl")
+}
+
+include "iam_role" {
+  path = "${get_repo_root()}/_env_helpers/iam-role.hcl"
 }
 
 # -----------------------------------------------------------------------------
@@ -22,11 +26,5 @@ locals {
 # -----------------------------------------------------------------------------
 
 inputs = {
-  environment = local.root.inputs.environment
-  region      = local.root.inputs.region
-  
-  # This will be overridden by the environment-level inputs merge
-  role_config = {}
-  
-  tags = local.root.inputs.common_tags
+  role_config = local.root.inputs.iam_role_configs.eks_node
 }

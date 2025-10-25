@@ -14,13 +14,17 @@
 #
 # Usage:
 #   - DNS name for Route53 alias records
-#   - Target group ARNs for EC2/ECS/Lambda attachment
+#   - Target group ARNs for EC2/ECS/EKS attachment
 #   - ARN suffixes for CloudWatch alarms and dashboards
 #   - Listener ARNs for adding custom routing rules
+#
+# Note:
+#   - ALB name is automatically prefixed with environment
+#   - HTTPS listener outputs are null when certificate_arn not provided
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
-# ALB CORE ATTRIBUTES
+# ALB ATTRIBUTES
 # -----------------------------------------------------------------------------
 
 output "alb_id" {
@@ -37,10 +41,6 @@ output "alb_arn_suffix" {
   description = "ARN suffix of the ALB (for use with CloudWatch metrics)"
   value       = aws_lb.this.arn_suffix
 }
-
-# -----------------------------------------------------------------------------
-# ALB NETWORKING
-# -----------------------------------------------------------------------------
 
 output "alb_dns_name" {
   description = "DNS name of the ALB"
@@ -82,5 +82,5 @@ output "http_listener_arn" {
 
 output "https_listener_arn" {
   description = "ARN of the HTTPS listener (if created)"
-  value       = var.certificate_arn != null ? aws_lb_listener.https[0].arn : null
+  value       = var.alb_config.certificate_arn != null ? aws_lb_listener.https["https"].arn : null
 }

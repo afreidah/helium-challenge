@@ -124,7 +124,7 @@ plan-all:
 	  (cd $$env && terragrunt --non-interactive run --all plan); \
 	done
 
-ci: fmt-check validate test ## Run formatting check, validation, and module tests
+ci: fmt-check validate test plan-all ## Run formatting check, validation, and module tests
 	@echo "$(GREEN)✓ CI checks passed$(NC)"
 
 ##@ Docker

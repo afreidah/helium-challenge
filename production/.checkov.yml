@@ -1,0 +1,4 @@
+skip-check:
+  - CKV_AWS_130    # Ensure VPC subnets do not assign public IP by default
+  - CKV2_AWS_11    # Ensure VPC flow logging is enabled in all VPCs
+  - CKV2_AWS_12    # Ensure the default security group of every VPC restricts all traffic

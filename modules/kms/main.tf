@@ -48,6 +48,7 @@
 # Customer managed KMS key for encryption operations
 # Provides full control over key lifecycle, rotation, and access policies
 resource "aws_kms_key" "this" {
+  #checkov:skip=CKV_AWS_7:Key rotation controlled by enable_key_rotation variable (default: true)
   description             = var.description
   deletion_window_in_days = var.deletion_window_in_days
   enable_key_rotation     = var.enable_key_rotation

@@ -127,6 +127,22 @@ plan-all:
 ci: fmt-check validate test ## Run formatting check, validation, and module tests
 	@echo "$(GREEN)✓ CI checks passed$(NC)"
 
+##@ Docker
+
+DOCKER_IMAGE_NAME ?= helium-ci
+DOCKER_TAG ?= latest
+
+docker-build: ## Build the CI Docker image (Terragrunt/OpenTofu toolkit)
+	@echo "Building Docker image: $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)"
+	@docker build -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG) .
+	@echo "$(GREEN)✓ Docker image built successfully: $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)$(NC)"
+
+docker-clean: ## Remove the CI Docker image and dangling layers
+	@echo "Removing Docker image: $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)"
+	@docker rmi -f $(DOCKER_IMAGE_NAME):$(DOCKER_TAG) 2>/dev/null || true
+	@docker image prune -f >/dev/null
+	@echo "$(GREEN)✓ Docker cleanup complete$(NC)"
+
 ## Clean up Terraform/Terragrunt build artifacts and caches
 clean:
 	@echo "Cleaning Terraform and Terragrunt artifacts..."

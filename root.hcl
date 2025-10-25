@@ -207,7 +207,7 @@ terraform {
     commands = ["plan", "apply"]
     execute  = [
       "bash", "-c",
-      "echo 'Running Trivy config scan...'; trivy config . --config .trivy.yaml"
+      "echo 'Running Trivy config scan...'; trivy config ."
     ]
   }
 

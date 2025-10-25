@@ -42,7 +42,7 @@ inputs = {
   alias_name = "${local.root.inputs.environment}-${local.root.inputs.region}-infra"
 
   # Security best practices
-  enable_key_rotation     = true 
+  enable_key_rotation     = true
   deletion_window_in_days = 30
 
   # Key policy (null = use AWS default policy which grants account root full access)

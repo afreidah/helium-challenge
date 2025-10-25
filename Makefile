@@ -1,22 +1,55 @@
+# -----------------------------------------------------------------------------
+# MAKEFILE - TERRAGRUNT/OPENTOFU CI/CD AUTOMATION
+# -----------------------------------------------------------------------------
+#
+# This Makefile provides automation targets for Terraform/Terragrunt
+# infrastructure code quality, validation, testing, and deployment workflows.
+#
+# Target Categories:
+#   - Code Quality: Formatting and style checks
+#   - Validation: Module and Terragrunt configuration validation
+#   - Security: Static security scanning with Checkov
+#   - Testing: Terraform native test execution
+#   - Workflows: CI/CD pipeline orchestration
+#   - Docker: CI toolkit image management
+#   - Cleanup: Artifact and cache removal
+#
+# Common Usage:
+#   make fmt          - Format all Terraform and Terragrunt files
+#   make validate     - Validate all modules and configurations
+#   make test         - Run Terraform tests on all modules
+#   make ci           - Run complete CI pipeline (format, validate, test, plan)
+#   make plan-all     - Generate Terragrunt plans for all environments
+#   make clean        - Remove all build artifacts and caches
+#
+# Requirements:
+#   - terraform or tofu
+#   - terragrunt
+#   - hclfmt
+#   - checkov (for security scanning)
+#   - docker (for containerized workflows)
+# -----------------------------------------------------------------------------
+
 SHELL := /usr/bin/env bash
 
 # Directories
 MODULES_DIR ?= modules
+PLAN_DIR    ?= .ci/plan
 
 # Colors
-RED := \033[0;31m
-GREEN := \033[0;32m
+RED    := \033[0;31m
+GREEN  := \033[0;32m
 YELLOW := \033[0;33m
-BLUE := \033[0;36m
-NC := \033[0m
+BLUE   := \033[0;36m
+NC     := \033[0m
 
-##@ General
+.PHONY: help fmt fmt-check validate-modules validate-terragrunt validate test ci checkov plan-all clean docker-build docker-clean
 
-.PHONY: help fmt fmt-check validate-modules validate-terragrunt validate test ci checkov plan-all clean
+# -----------------------------------------------------------------------------
+# HELP
+# -----------------------------------------------------------------------------
 
-##@ General
-
-help: ## Show available targets for formatting, validation, tests, planning, and cleanup
+help: ## Show available targets with descriptions
 	@printf "\nUsage:\n  make $(YELLOW)<target>$(NC)\n"
 	@awk 'BEGIN {FS = ":.*##"} \
 		/^##@/ { printf "\n$(GREEN)%s$(NC)\n", substr($$0, 5); next } \
@@ -25,36 +58,44 @@ help: ## Show available targets for formatting, validation, tests, planning, and
 	@echo "$(YELLOW)Common targets:$(NC)"
 	@printf "  $(BLUE)fmt$(NC), $(BLUE)fmt-check$(NC), $(BLUE)validate$(NC), $(BLUE)test$(NC), $(BLUE)plan-all$(NC), $(BLUE)checkov$(NC), $(BLUE)clean$(NC), $(BLUE)ci$(NC)\n"
 
+# -----------------------------------------------------------------------------
+# CODE QUALITY
+# -----------------------------------------------------------------------------
 
 ##@ Code Quality
 
 fmt: ## Format Terraform (modules) and Terragrunt HCL (live)
-	@echo "Formatting Terraform (modules)"
-	@terraform fmt -recursive ./modules || tofu fmt -recursive ./modules
-	@echo "Formatting Terragrunt HCL (live)"
+	@echo "$(BLUE)Formatting Terraform modules$(NC)"
+	@terraform fmt -recursive ./$(MODULES_DIR) || tofu fmt -recursive ./$(MODULES_DIR)
+	@echo "$(BLUE)Formatting Terragrunt HCL files$(NC)"
 	@find . -type f -name "*.hcl" ! -path "*/.terragrunt-cache/*" -print0 | \
 	while IFS= read -r -d '' f; do hclfmt -w "$$f"; done
+	@echo "$(GREEN)✓ Formatting complete$(NC)"
 
 fmt-check: ## Check formatting (fail if changes would be needed)
-	@echo "Checking Terraform formatting (modules)"
-	@terraform fmt -check -recursive ./modules || tofu fmt -check -recursive ./modules
-	@echo "Checking Terragrunt HCL formatting (live)"
+	@echo "$(BLUE)Checking Terraform formatting$(NC)"
+	@terraform fmt -check -recursive ./$(MODULES_DIR) || tofu fmt -check -recursive ./$(MODULES_DIR)
+	@echo "$(BLUE)Checking Terragrunt HCL formatting$(NC)"
 	@changed=0; \
 	find . -type f -name "*.hcl" ! -path "*/.terragrunt-cache/*" -print0 | \
 	while IFS= read -r -d '' f; do \
 		if ! hclfmt -check -require-no-change "$$f" >/dev/null 2>&1; then \
-			echo "Needs format: $$f"; changed=1; \
+			echo "$(RED)Needs format: $$f$(NC)"; changed=1; \
 		fi; \
 	done; \
 	if [ $$changed -ne 0 ]; then \
-		echo "✗ Some .hcl files need formatting"; exit 1; \
+		echo "$(RED)✗ Some .hcl files need formatting$(NC)"; exit 1; \
 	else \
-		echo "✓ Terragrunt HCL formatting ok"; \
+		echo "$(GREEN)✓ All files formatted correctly$(NC)"; \
 	fi
+
+# -----------------------------------------------------------------------------
+# VALIDATION
+# -----------------------------------------------------------------------------
 
 ##@ Validation
 
-validate-modules: ## terraform validate for each module (no backend init)
+validate-modules: ## Validate all Terraform modules (no backend init)
 	@echo "$(BLUE)Validating Terraform modules$(NC)"
 	@set -e; \
 	failed=0; \
@@ -68,40 +109,48 @@ validate-modules: ## terraform validate for each module (no backend init)
 		echo "$(GREEN)✓ All modules validated$(NC)"; \
 	fi
 
-validate-terragrunt: ## Validate Terragrunt stacks (HCL only; run tofu validate only where a module source exists)
-	@echo "Validating Terragrunt live configs"
+validate-terragrunt: ## Validate Terragrunt configurations (HCL and module references)
+	@echo "$(BLUE)Validating Terragrunt live configs$(NC)"
 	@failed=0; \
 	for f in $(shell find . -type f -name terragrunt.hcl ! -path "*/.terragrunt-cache/*"); do \
 		d=$$(dirname "$$f"); \
-		echo "Validating $$d"; \
+		echo "$(YELLOW)Validating $$d$(NC)"; \
 		hclfmt -check "$$f" || failed=$$(expr $$failed + 1); \
 		if grep -q '^[[:space:]]*terraform[[:space:]]*{' "$$f" && grep -q 'source[[:space:]]*=' "$$f"; then \
 			( cd "$$d" && terragrunt run -- init -backend=false -input=false >/dev/null 2>&1 && terragrunt run -- validate -no-color ) \
 			|| failed=$$(expr $$failed + 1); \
 		else \
-			echo "  (skip) no terraform { source } block"; \
+			echo "  $(YELLOW)(skip) no terraform { source } block$(NC)"; \
 		fi; \
 	done; \
 	if [ $$failed -gt 0 ]; then \
-		echo "✗ One or more Terragrunt dir(s) failed validation"; exit 1; \
+		echo "$(RED)✗ $$failed Terragrunt dir(s) failed validation$(NC)"; exit 1; \
 	else \
-		echo "✓ All Terragrunt dirs validated"; \
+		echo "$(GREEN)✓ All Terragrunt configs validated$(NC)"; \
 	fi
 
 validate: validate-modules validate-terragrunt ## Run both module and Terragrunt validation
 
+# -----------------------------------------------------------------------------
+# SECURITY SCANNING
+# -----------------------------------------------------------------------------
+
 ##@ Security Scanning
 
-checkov: ## Run Checkov against the whole repo
-	@echo "Running Checkov (checkov -d .)"
-	@command -v checkov >/dev/null 2>&1 || { echo "Error: checkov not installed"; exit 1; }
-	@checkov -d . || { echo "✗ Checkov failed"; exit 1; }
-	@echo "✓ Checkov passed"
+checkov: ## Run Checkov security scanner against the repository
+	@echo "$(BLUE)Running Checkov security scan$(NC)"
+	@command -v checkov >/dev/null 2>&1 || { echo "$(RED)Error: checkov not installed$(NC)"; exit 1; }
+	@checkov -d . --config-file .checkov.yml || { echo "$(RED)✗ Checkov failed$(NC)"; exit 1; }
+	@echo "$(GREEN)✓ Checkov passed$(NC)"
+
+# -----------------------------------------------------------------------------
+# TESTING
+# -----------------------------------------------------------------------------
 
 ##@ Testing
 
 test: ## Run terraform test on all modules
-	@echo "$(BLUE)Running terraform test on all modules...$(NC)"
+	@echo "$(BLUE)Running terraform test on all modules$(NC)"
 	@set -e; \
 	failed=0; \
 	for dir in $(MODULES_DIR)/*/; do \
@@ -114,38 +163,64 @@ test: ## Run terraform test on all modules
 		echo "$(GREEN)✓ All modules passed tests$(NC)"; \
 	fi
 
+# -----------------------------------------------------------------------------
+# WORKFLOWS
+# -----------------------------------------------------------------------------
+
 ##@ Workflows
 
-## Run Terragrunt plan across all environments
-plan-all:
+plan-all: ## Run Terragrunt plan across all environments and save output
+	@echo "$(BLUE)Planning all environments$(NC)"
+	@mkdir -p $(PLAN_DIR)
 	@set -e; \
+	failed=0; \
 	for env in staging production; do \
-	  echo "==> Running plan in $$env"; \
-	  (cd $$env && terragrunt --non-interactive run --all plan); \
-	done
+		echo "$(YELLOW)==> Planning $$env environment$(NC)"; \
+		if (cd $$env && terragrunt run-all plan --terragrunt-non-interactive) > $(PLAN_DIR)/plan-$$env.txt 2>&1; then \
+			echo "$(GREEN)✓ $$env plan successful$(NC)"; \
+		else \
+			echo "$(RED)✗ $$env plan failed$(NC)"; \
+			failed=$$((failed+1)); \
+		fi; \
+	done; \
+	if [ $$failed -gt 0 ]; then \
+		echo "$(RED)✗ $$failed environment(s) failed planning$(NC)"; \
+		exit 1; \
+	else \
+		echo "$(GREEN)✓ All plans saved to $(PLAN_DIR)/$(NC)"; \
+	fi
 
-ci: fmt-check validate test plan-all ## Run formatting check, validation, and module tests
+ci: fmt-check validate test plan-all ## Run complete CI pipeline (format, validate, test, plan)
 	@echo "$(GREEN)✓ CI checks passed$(NC)"
+
+# -----------------------------------------------------------------------------
+# DOCKER
+# -----------------------------------------------------------------------------
 
 ##@ Docker
 
 DOCKER_IMAGE_NAME ?= helium-ci
-DOCKER_TAG ?= latest
+DOCKER_TAG        ?= latest
 
 docker-build: ## Build the CI Docker image (Terragrunt/OpenTofu toolkit)
-	@echo "Building Docker image: $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)"
+	@echo "$(BLUE)Building Docker image: $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)$(NC)"
 	@docker build -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG) .
 	@echo "$(GREEN)✓ Docker image built successfully: $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)$(NC)"
 
 docker-clean: ## Remove the CI Docker image and dangling layers
-	@echo "Removing Docker image: $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)"
+	@echo "$(BLUE)Removing Docker image: $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)$(NC)"
 	@docker rmi -f $(DOCKER_IMAGE_NAME):$(DOCKER_TAG) 2>/dev/null || true
 	@docker image prune -f >/dev/null
 	@echo "$(GREEN)✓ Docker cleanup complete$(NC)"
 
-## Clean up Terraform/Terragrunt build artifacts and caches
-clean:
-	@echo "Cleaning Terraform and Terragrunt artifacts..."
+# -----------------------------------------------------------------------------
+# CLEANUP
+# -----------------------------------------------------------------------------
+
+##@ Cleanup
+
+clean: ## Clean up Terraform/Terragrunt build artifacts and caches
+	@echo "$(BLUE)Cleaning Terraform and Terragrunt artifacts$(NC)"
 	@find . -type d -name ".terraform" -prune -exec rm -rf {} +
 	@find . -type d -name ".terragrunt-cache" -prune -exec rm -rf {} +
 	@find . -type f -name "*.tfstate" -delete
@@ -157,6 +232,6 @@ clean:
 	@find . -type f -name ".trivy.yaml" -delete
 	@find . -type f -name ".trivyignore" -delete
 	@find . -type d -name ".checkov" -prune -exec rm -rf {} +
+	@find . -type d -name "$(PLAN_DIR)" -prune -exec rm -rf {} +
 	@find . -type f -name "debug.tfvars" -delete
-	@echo "Cleanup complete."
-
+	@echo "$(GREEN)✓ Cleanup complete$(NC)"

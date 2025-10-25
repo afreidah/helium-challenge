@@ -205,7 +205,7 @@ terraform {
 
   after_hook "trivy_scan" {
     commands = ["plan", "apply"]
-    execute  = [
+    execute = [
       "bash", "-c",
       "echo 'Running Trivy config scan...'; trivy config ."
     ]
@@ -213,7 +213,7 @@ terraform {
 
   after_hook "checkov_scan" {
     commands = ["plan", "apply"]
-    execute  = [
+    execute = [
       "bash", "-c",
       "echo 'Running Checkov...'; checkov -d . --compact"
     ]

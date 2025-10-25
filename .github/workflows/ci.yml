@@ -74,5 +74,3 @@ jobs:
             -w /workspace \
             $TOOL_IMAGE \
             bash -lc 'make ci'
->>>>>>> 1fd8ace (made Dockerfile to have testing tools to run the github actions on)
-

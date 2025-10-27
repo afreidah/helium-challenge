@@ -39,7 +39,7 @@ YELLOW := \033[0;33m
 BLUE   := \033[0;36m
 NC     := \033[0m
 
-.PHONY: help fmt fmt-check validate-modules validate-terragrunt validate test ci plan-all clean docker-build docker-clean
+.PHONY: help fmt fmt-check validate-modules validate-terragrunt validate test ci plan-all clean docker-build docker-clean docker-ci cost
 
 # -----------------------------------------------------------------------------
 # HELP
@@ -178,8 +178,43 @@ ci: fmt-check validate test plan-all ## Run complete CI pipeline (format, valida
 	@echo "$(GREEN)✓ CI checks passed$(NC)"
 
 # -----------------------------------------------------------------------------
+# DOCKER
+# -----------------------------------------------------------------------------
+
+##@ Docker
+
+DOCKER_IMAGE_NAME ?= helium-ci
+DOCKER_TAG        ?= latest
+
+docker-ci: ## Run CI checks inside Docker container (mimics GitHub Actions)
+	@echo "$(BLUE)Building Docker image...$(NC)"
+	@docker build -t helium-ci:latest .
+	@echo "$(BLUE)Running CI checks in container...$(NC)"
+	@docker run --rm \
+		-e AWS_ACCESS_KEY_ID \
+		-e AWS_SECRET_ACCESS_KEY \
+		-e AWS_DEFAULT_REGION \
+		-v $(PWD):/workspace \
+		-w /workspace \
+		helium-ci:latest \
+		bash -c 'git config --global --add safe.directory /workspace && make ci'
+
+docker-build: ## Build the CI Docker image (Terragrunt/OpenTofu toolkit)
+	@echo "$(BLUE)Building Docker image: $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)$(NC)"
+	@docker build -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG) .
+	@echo "$(GREEN)✓ Docker image built successfully: $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)$(NC)"
+
+docker-clean: ## Remove the CI Docker image and dangling layers
+	@echo "$(BLUE)Removing Docker image: $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)$(NC)"
+	@docker rmi -f $(DOCKER_IMAGE_NAME):$(DOCKER_TAG) 2>/dev/null || true
+	@docker image prune -f >/dev/null
+	@echo "$(GREEN)✓ Docker cleanup complete$(NC)"
+
+# -----------------------------------------------------------------------------
 # INFRACOST
 # -----------------------------------------------------------------------------
+
+##@ Cost Estimation
 
 cost: ## Estimate infrastructure costs with Infracost
 	@echo "$(BLUE)Estimating infrastructure costs...$(NC)"
@@ -193,28 +228,6 @@ cost: ## Estimate infrastructure costs with Infracost
 		exit 1; \
 	fi
 	@infracost breakdown --path . --format table
-
-.PHONY: cost
-
-# -----------------------------------------------------------------------------
-# DOCKER
-# -----------------------------------------------------------------------------
-
-##@ Docker
-
-DOCKER_IMAGE_NAME ?= helium-ci
-DOCKER_TAG        ?= latest
-
-docker-build: ## Build the CI Docker image (Terragrunt/OpenTofu toolkit)
-	@echo "$(BLUE)Building Docker image: $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)$(NC)"
-	@docker build -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG) .
-	@echo "$(GREEN)✓ Docker image built successfully: $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)$(NC)"
-
-docker-clean: ## Remove the CI Docker image and dangling layers
-	@echo "$(BLUE)Removing Docker image: $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)$(NC)"
-	@docker rmi -f $(DOCKER_IMAGE_NAME):$(DOCKER_TAG) 2>/dev/null || true
-	@docker image prune -f >/dev/null
-	@echo "$(GREEN)✓ Docker cleanup complete$(NC)"
 
 # -----------------------------------------------------------------------------
 # CLEANUP

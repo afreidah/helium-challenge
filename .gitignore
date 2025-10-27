@@ -83,3 +83,4 @@ __pycache__/
 *.pyc
 
 .ci/*
+*checkov.yml

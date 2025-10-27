@@ -72,8 +72,7 @@ fmt: ## Format Terraform (modules) and Terragrunt HCL (live)
 	@echo "$(BLUE)Formatting Terraform modules$(NC)"
 	@terraform fmt -recursive ./$(MODULES_DIR) || tofu fmt -recursive ./$(MODULES_DIR)
 	@echo "$(BLUE)Formatting Terragrunt HCL files$(NC)"
-	@find . -type f -name "*.hcl" ! -path "*/.terragrunt-cache/*" -print0 | \
-	while IFS= read -r -d '' f; do hclfmt -w "$$f"; done
+	@find . -type f -name "*.hcl" ! -path "*/.terragrunt-cache/*" -print0 | xargs -0 -I {} hclfmt -w {}
 	@echo "$(GREEN)✓ Formatting complete$(NC)"
 
 fmt-check: ## Check formatting (fail if changes would be needed)

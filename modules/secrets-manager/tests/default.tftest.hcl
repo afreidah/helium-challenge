@@ -9,8 +9,8 @@
 
 # Test variables
 variables {
-  test_kms_key_id  = "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
-  test_lambda_arn  = "arn:aws:lambda:us-east-1:123456789012:function:SecretsManagerRotation"
+  test_kms_key_id = "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
+  test_lambda_arn = "arn:aws:lambda:us-east-1:123456789012:function:SecretsManagerRotation"
   test_secret_json = jsonencode({
     username = "dbadmin"
     password = "TestPassword123!"
@@ -268,9 +268,9 @@ run "iam_policy_created" {
         secret_string = "app123"
       }
     }
-    create_read_policy  = true
-    policy_name_prefix  = "production"
-    kms_key_arn         = var.test_kms_key_id
+    create_read_policy = true
+    policy_name_prefix = "production"
+    kms_key_arn        = var.test_kms_key_id
   }
 
   # Assert IAM policy created

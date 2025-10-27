@@ -39,7 +39,7 @@ terraform {
 # -----------------------------------------------------------------------------
 
 # Node group depends on cluster and general-networking being created first
-dependency "general-networking" {
+dependency "general_networking" {
   config_path = "../general-networking"
 
   mock_outputs = {
@@ -79,8 +79,8 @@ locals {
 # -----------------------------------------------------------------------------
 
 inputs = {
-  # Node group identification (from root.hcl)
-  node_group_name = local.root_config.locals.eks_node_group_name
+  # Node group identification
+  node_group_name = "${local.root_config.locals.environment}-${local.root_config.locals.region}-eks-nodes"
 
   # Cluster identification and connection
   cluster_name                       = dependency.eks_cluster.outputs.cluster_name
@@ -90,9 +90,18 @@ inputs = {
   cluster_security_group_id          = dependency.eks_cluster.outputs.cluster_security_group_id
 
   # Networking
-  vpc_id     = dependency["general-networking"].outputs.vpc_id
-  subnet_ids = dependency["general-networking"].outputs.private_app_subnet_ids
+  vpc_id     = dependency["general_networking"].outputs.vpc_id
+  subnet_ids = dependency["general_networking"].outputs.private_app_subnet_ids
 
-  # Node group configuration from root.hcl (all environment-specific)
-  # These are automatically passed through via the root include in the environment file
+  # Node group defaults from root.hcl (consolidated config object)
+  ami_type       = local.root_config.inputs.eks_cluster_config.node_groups_defaults.ami_type
+  capacity_type  = local.root_config.inputs.eks_cluster_config.node_groups_defaults.capacity_type
+  disk_size      = local.root_config.inputs.eks_cluster_config.node_groups_defaults.disk_size
+  instance_types = local.root_config.inputs.eks_cluster_config.node_groups_defaults.instance_types
+  desired_size   = local.root_config.inputs.eks_cluster_config.node_groups_defaults.desired_size
+  min_size       = local.root_config.inputs.eks_cluster_config.node_groups_defaults.min_size
+  max_size       = local.root_config.inputs.eks_cluster_config.node_groups_defaults.max_size
+
+  # Tags from root (inherited automatically via root.hcl inputs)
+  # environment, region, component, common_tags
 }

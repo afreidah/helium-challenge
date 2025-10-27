@@ -57,18 +57,18 @@ inputs = {
   cluster_encryption_key_arn = dependency.kms.outputs.key_arn
   cloudwatch_kms_key_id      = dependency.kms.outputs.key_id
 
-  # EKS configuration from root.hcl
-  kubernetes_version        = local.root.inputs.eks_kubernetes_version
-  endpoint_private_access   = local.root.inputs.eks_endpoint_private_access
-  endpoint_public_access    = local.root.inputs.eks_endpoint_public_access
-  public_access_cidrs       = local.root.inputs.eks_public_access_cidrs
-  enabled_cluster_log_types = local.root.inputs.eks_enabled_cluster_log_types
-  cloudwatch_retention_days = local.root.inputs.eks_cloudwatch_retention_days
+  # EKS configuration from root.hcl (consolidated config object)
+  kubernetes_version        = local.root.inputs.eks_cluster_config.kubernetes_version
+  endpoint_private_access   = local.root.inputs.eks_cluster_config.endpoint_private_access
+  endpoint_public_access    = local.root.inputs.eks_cluster_config.endpoint_public_access
+  public_access_cidrs       = local.root.inputs.eks_cluster_config.public_access_cidrs
+  enabled_cluster_log_types = local.root.inputs.eks_cluster_config.enabled_cluster_log_types
+  cloudwatch_retention_days = local.root.inputs.eks_cluster_config.cloudwatch_retention_days
 
-  # Add-on versions from root.hcl
-  vpc_cni_version    = lookup(local.root.inputs, "eks_vpc_cni_version", null)
-  coredns_version    = lookup(local.root.inputs, "eks_coredns_version", null)
-  kube_proxy_version = lookup(local.root.inputs, "eks_kube_proxy_version", null)
+  # Add-on versions from root.hcl (consolidated config object)
+  vpc_cni_version    = local.root.inputs.eks_cluster_config.vpc_cni_version
+  coredns_version    = local.root.inputs.eks_cluster_config.coredns_version
+  kube_proxy_version = local.root.inputs.eks_cluster_config.kube_proxy_version
 
   # AWS auth ConfigMap (will be configured after node group is created)
   manage_aws_auth_configmap = false

@@ -2,12 +2,9 @@
 # SECRETS MANAGER ENVIRONMENT HELPER
 # -----------------------------------------------------------------------------
 #
-# This file provides the terraform source and default configuration for the
-# Secrets Manager module across all environments. It creates secrets for
-# Aurora database credentials and other sensitive application configuration.
-#
-# The module accepts dependency outputs at the top level, avoiding Terragrunt
-# expression evaluation limitations with nested dependency references.
+# This helper provides the Terraform source and default configuration for the
+# Secrets Manager module across all environments. It creates secrets for Aurora
+# database credentials and other sensitive application configuration.
 # -----------------------------------------------------------------------------
 
 terraform {
@@ -23,12 +20,12 @@ locals {
 }
 
 # -----------------------------------------------------------------------------
-# DEPENDENCIES
+# Dependencies
 # -----------------------------------------------------------------------------
 
-# KMS key for encrypting secrets
 dependency "kms" {
   config_path  = "../kms"
+  skip_outputs = true
 
   mock_outputs = {
     key_id  = "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
@@ -36,16 +33,15 @@ dependency "kms" {
   }
 }
 
-# Aurora cluster for connection details
 dependency "aurora" {
   config_path  = "../aurora-postgresql"
+  skip_outputs = true
 
   mock_outputs = {
-    cluster_endpoint        = "mock-aurora.cluster-xyz.us-east-1.rds.amazonaws.com"
-    cluster_reader_endpoint = "mock-aurora.cluster-ro-xyz.us-east-1.rds.amazonaws.com"
+    cluster_endpoint        = "placeholder.cluster-xxx.us-east-1.rds.amazonaws.com"
+    cluster_reader_endpoint = "placeholder.cluster-ro-xxx.us-east-1.rds.amazonaws.com"
     cluster_port            = 5432
-    cluster_database_name   = "appdb"
-    cluster_master_username = "postgres"
+    cluster_database_name   = "postgres"
   }
 }
 
@@ -54,22 +50,37 @@ dependency "aurora" {
 # -----------------------------------------------------------------------------
 
 inputs = {
-  # Secrets configuration from root.hcl
-  secrets = local.root.inputs.secrets_config
-  
-  # Inject KMS key ID into all secrets (module handles this)
-  kms_key_id = dependency.kms.outputs.key_id
-  
-  # Inject Aurora endpoints into master credentials secret (module handles this)
-  aurora_endpoint        = dependency.aurora.outputs.cluster_endpoint
-  aurora_reader_endpoint = dependency.aurora.outputs.cluster_reader_endpoint
-  aurora_port            = dependency.aurora.outputs.cluster_port
-  aurora_database_name   = dependency.aurora.outputs.cluster_database_name
-  
+  # Build secrets map with real Aurora values injected via Terragrunt
+  secrets = {
+    for key, config in local.root.locals.secrets_config :
+    key => merge(
+      config,
+      # Inject KMS key into all secrets
+      {
+        kms_key_id = dependency.kms.outputs.key_id
+      },
+      # For Aurora secrets, inject real connection details
+      can(regex("/aurora/", key)) ? {
+        secret_string = jsonencode(
+          merge(
+            jsondecode(config.secret_string),
+            {
+              host        = dependency.aurora.outputs.cluster_endpoint
+              reader_host = dependency.aurora.outputs.cluster_reader_endpoint
+              port        = dependency.aurora.outputs.cluster_port
+              dbname      = dependency.aurora.outputs.cluster_database_name
+            }
+          )
+        )
+      } : {}
+    )
+  }
+
   # Create IAM read policy for EKS pods
   create_read_policy = true
   policy_name_prefix = "${local.root.locals.environment}-app"
   kms_key_arn        = dependency.kms.outputs.key_arn
 
-  # Tags from root (inherited automatically via root.hcl inputs)
+  # Tags from root configuration
+  tags = local.root.inputs.common_tags
 }

@@ -3,5 +3,5 @@ include "root" {
 }
 
 include "aurora_postgresql" {
-  path = "${get_repo_root()}/_env_helpers/aurora-test-exact-copy.hcl"
+  path = "${get_repo_root()}/_env_helpers/aurora-postgresql.hcl"
 }

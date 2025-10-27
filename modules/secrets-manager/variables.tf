@@ -10,7 +10,7 @@ variable "secrets" {
     kms_key_id              = optional(string)
     recovery_window_in_days = optional(number, 30)
     rotation_lambda_arn     = optional(string)
-    rotation_days           = optional(number, 30)
+    rotation_days           = optional(number)
   }))
   default = {}
 
@@ -32,40 +32,8 @@ variable "secrets" {
 }
 
 # -----------------------------------------------------------------------------
-# DEPENDENCY INJECTION VARIABLES
+# IAM POLICY CONFIGURATION
 # -----------------------------------------------------------------------------
-# These variables allow Terragrunt to inject values from dependencies
-# without complex nested expressions that Terragrunt can't evaluate
-
-variable "kms_key_id" {
-  description = "KMS key ID to inject into all secrets (overrides individual kms_key_id values)"
-  type        = string
-  default     = null
-}
-
-variable "aurora_endpoint" {
-  description = "Aurora cluster endpoint to inject into Aurora master credentials secret"
-  type        = string
-  default     = null
-}
-
-variable "aurora_reader_endpoint" {
-  description = "Aurora cluster reader endpoint to inject into Aurora master credentials secret"
-  type        = string
-  default     = null
-}
-
-variable "aurora_port" {
-  description = "Aurora cluster port to inject into Aurora master credentials secret"
-  type        = number
-  default     = null
-}
-
-variable "aurora_database_name" {
-  description = "Aurora database name to inject into Aurora master credentials secret"
-  type        = string
-  default     = null
-}
 
 variable "create_read_policy" {
   description = "Create IAM policy for reading secrets"
@@ -76,35 +44,31 @@ variable "create_read_policy" {
 variable "policy_name_prefix" {
   description = "Prefix for IAM policy name"
   type        = string
-  default     = "secretsmanager"
+  default     = "app"
 
   validation {
-    condition     = length(var.policy_name_prefix) > 0 && length(var.policy_name_prefix) <= 50
-    error_message = "Policy name prefix must be between 1 and 50 characters."
+    condition     = can(regex("^[a-zA-Z0-9+=,.@_-]+$", var.policy_name_prefix))
+    error_message = "Policy name prefix must contain only alphanumeric characters and +=,.@_-"
   }
 }
 
 variable "kms_key_arn" {
-  description = "KMS key ARN for encrypting secrets (used in IAM policy)"
+  description = "KMS key ARN for IAM policy permissions (required if create_read_policy is true)"
   type        = string
-  default     = "*"
+  default     = null
 
   validation {
-    condition     = var.kms_key_arn == "*" || can(regex("^arn:aws:kms:[a-z0-9-]+:[0-9]{12}:key/[a-f0-9-]+$", var.kms_key_arn))
-    error_message = "KMS key ARN must be a valid KMS key ARN or '*'."
+    condition     = var.kms_key_arn == null || can(regex("^arn:aws:kms:[a-z0-9-]+:[0-9]{12}:key/[a-f0-9-]+$", var.kms_key_arn))
+    error_message = "KMS key ARN must be a valid KMS key ARN format."
   }
 }
 
+# -----------------------------------------------------------------------------
+# TAGGING
+# -----------------------------------------------------------------------------
+
 variable "tags" {
-  description = "Tags to apply to all secrets"
+  description = "Tags to apply to all resources"
   type        = map(string)
   default     = {}
-
-  validation {
-    condition = alltrue([
-      for key, value in var.tags :
-      length(key) <= 128 && length(value) <= 256
-    ])
-    error_message = "Tag keys must be <= 128 characters and values must be <= 256 characters."
-  }
 }

@@ -61,7 +61,7 @@ inputs = {
   # Database configuration
   database_name   = replace("${local.root.locals.environment}_db", "-", "_")
   master_username = "dbadmin"
-  master_password = get_env("AURORA_MASTER_PASSWORD", "CHANGE_ME_IN_PRODUCTION")
+  master_password = get_env("AURORA_MASTER_PASSWORD", "ChangeMe123!")
 
   # Engine configuration from root.hcl
   engine_version = local.root.locals.aurora_defaults.engine_version

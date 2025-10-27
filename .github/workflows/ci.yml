@@ -133,7 +133,7 @@ ${costStaging}
 </details>
 
 ---
-📦 [Download full artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+📦 [Download full artifacts](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`;
 
             const marker = '<!-- terragrunt-results -->';
             const { owner, repo } = context.repo;

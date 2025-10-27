@@ -109,7 +109,6 @@ jobs:
 
             const body = `## 📋 Terraform Plan
             
-${summary}<details><summary>View full plan</summary>
 
 \`\`\`hcl
 ${plan}

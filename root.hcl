@@ -635,6 +635,9 @@ skip-check:
   
   # CloudWatch
   - CKV_AWS_338   # CloudWatch retention set to 90 days per company policy (not 365)
+
+  # TLS
+  - CKV_AWS_103   # HTTP listener (port 80) only redirects to HTTPS; TLS 1.2+ enforced on HTTPS listener
 EOF
 }
 

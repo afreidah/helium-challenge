@@ -26,9 +26,8 @@ dependency "general_networking" {
   skip_outputs = true
 
   mock_outputs = {
-    vpc_id                  = "vpc-12345678"
-    private_data_subnet_ids = ["subnet-12345678", "subnet-87654321"]
-    aurora_postgresql_sg_id = "sg-12345678"
+    vpc_id             = "vpc-12345678"
+    private_subnet_ids = ["subnet-12345678", "subnet-87654321"]
   }
 }
 
@@ -38,6 +37,16 @@ dependency "kms" {
 
   mock_outputs = {
     key_arn = "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
+    key_id  = "12345678-1234-1234-1234-123456789012"
+  }
+}
+
+dependency "security_groups_aurora" {
+  config_path  = "../security-groups-aurora"
+  skip_outputs = true
+
+  mock_outputs = {
+    security_group_id = "sg-12345678"
   }
 }
 
@@ -69,8 +78,8 @@ inputs = {
   kms_key_id        = dependency.kms.outputs.key_arn
 
   # Network configuration from dependency
-  vpc_security_group_ids     = [dependency.general_networking.outputs.aurora_postgresql_sg_id]
-  db_subnet_group_subnet_ids = dependency.general_networking.outputs.private_data_subnet_ids
+  vpc_security_group_ids     = [dependency.security_groups_aurora.outputs.security_group_id]
+  db_subnet_group_subnet_ids = dependency.general_networking.outputs.private_subnet_ids
   publicly_accessible        = local.root.locals.aurora_defaults.publicly_accessible
   availability_zones         = null
 

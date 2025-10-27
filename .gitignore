@@ -82,3 +82,4 @@ node_modules/
 __pycache__/
 *.pyc
 
+.ci/*

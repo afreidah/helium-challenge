@@ -150,7 +150,7 @@ plan-all: ## Run Terragrunt plan across all environments and save output
 	failed=0; \
 	for env in production; do \
 		echo "$(YELLOW)==> Planning $$env environment$(NC)"; \
-		if (cd $$env && terragrunt run --all --parallelism 10 -- plan) > $(PLAN_DIR)/plan-$$env.txt 2>&1; then \
+		if (cd $$env && TF_IN_AUTOMATION=1 TERRAGRUNT_LOG_LEVEL=error terragrunt run --all -- plan -no-color -compact-warnings) > $(PLAN_DIR)/plan-$$env.txt 2>&1; then \
 			echo "$(GREEN)✓ $$env plan successful$(NC)"; \
 		else \
 			echo "$(RED)✗ $$env plan failed$(NC)"; \
@@ -215,7 +215,7 @@ cost: ## Estimate infrastructure costs with Infracost for all environments
 	@mkdir -p $(PLAN_DIR)
 	@for env in production staging; do \
 		echo "$(YELLOW)Estimating costs for $$env...$(NC)"; \
-		(cd $$env && infracost breakdown --path . --format table > ../$(PLAN_DIR)/cost-$$env.txt 2>&1) & \
+		(cd $$env && infracost breakdown --path . --format table 2>&1 | tee ../$(PLAN_DIR)/cost-$$env.txt ) & \
 	done; \
 	wait
 	@echo "$(GREEN)✓ Cost estimates saved to $(PLAN_DIR)/$(NC)"

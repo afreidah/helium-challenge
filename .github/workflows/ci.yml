@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # CI/CD WORKFLOW
 # -----------------------------------------------------------------------------
-# Pull Request: Run CI checks (format, validate, test, plan) and cost estimate
+# Pull Request: Run CI checks (format, validate, test, plan, cost)
 # Merge to main: Same as PR, then WAIT FOR APPROVAL before apply
 #
 # SETUP REQUIRED REVIEWERS:
@@ -74,17 +74,66 @@ jobs:
 
             // Read plan
             const planPath = '.ci/plan/plan-production.txt';
-            const plan = fs.existsSync(planPath)
-              ? fs.readFileSync(planPath, 'utf8').slice(0, 60000)
-              : 'Plan not found';
+            let plan = 'Plan not found';
+            let summary = '';
+            
+            if (fs.existsSync(planPath)) {
+              const fullPlan = fs.readFileSync(planPath, 'utf8');
+              
+              // Extract summary from plan
+              const summaryMatch = fullPlan.match(/Plan: (\d+) to add, (\d+) to change, (\d+) to destroy/);
+              if (summaryMatch) {
+                const [_, add, change, destroy] = summaryMatch;
+                summary = `**📊 Summary:** ${add} to add, ${change} to change, ${destroy} to destroy\n\n`;
+              }
+              
+              // Truncate plan if too long
+              const maxLength = 100000;
+              plan = fullPlan.slice(0, maxLength);
+              if (fullPlan.length > maxLength) {
+                plan += '\n\n⚠️ **Plan truncated - download artifacts for full output**';
+              }
+            }
 
-            // Read cost
-            const costPath = '.ci/cost.txt';
-            const cost = fs.existsSync(costPath)
-              ? fs.readFileSync(costPath, 'utf8').slice(0, 5000)
-              : 'Cost estimate not found';
+            // Read production cost
+            const costProdPath = '.ci/plan/cost-production.txt';
+            const costProd = fs.existsSync(costProdPath)
+              ? fs.readFileSync(costProdPath, 'utf8').slice(0, 5000)
+              : 'Cost estimate not available';
 
-            const body = `## 📋 Terraform Plan\n\n<details><summary>View plan</summary>\n\n\`\`\`diff\n${plan}\n\`\`\`\n</details>\n\n## 💰 Cost Estimate\n\n\`\`\`\n${cost}\n\`\`\``;
+            // Read staging cost
+            const costStagingPath = '.ci/plan/cost-staging.txt';
+            const costStaging = fs.existsSync(costStagingPath)
+              ? fs.readFileSync(costStagingPath, 'utf8').slice(0, 5000)
+              : 'Cost estimate not available';
+
+            const body = `## 📋 Terraform Plan
+            
+${summary}<details><summary>View full plan</summary>
+
+\`\`\`hcl
+${plan}
+\`\`\`
+</details>
+
+## 💰 Cost Estimates
+
+<details><summary>Production</summary>
+
+\`\`\`
+${costProd}
+\`\`\`
+</details>
+
+<details><summary>Staging</summary>
+
+\`\`\`
+${costStaging}
+\`\`\`
+</details>
+
+---
+📦 [Download full artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
 
             const marker = '<!-- terragrunt-results -->';
             const { owner, repo } = context.repo;

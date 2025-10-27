@@ -681,7 +681,7 @@ terraform {
     commands = ["plan", "apply"]
     execute = [
       "bash", "-c",
-      "echo 'Running Checkov...'; checkov -d . --compact"
+      "echo 'Running Checkov...'; checkov -d . -o github_failed_only"
     ]
   }
 }

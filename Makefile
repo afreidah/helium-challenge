@@ -95,12 +95,10 @@ validate-modules: ## Validate all Terraform modules (no backend init)
 	@echo "$(BLUE)Validating Terraform modules$(NC)"
 	@set -e; \
 	failed=0; \
-	for dir in $(MODULES_DIR)/*/; do \
-		echo "$(YELLOW)Validating $$dir$(NC)"; \
-		( cd "$$dir" && terraform init -backend=false >/dev/null && terraform validate ) || failed=$$((failed+1)); \
-	done; \
+	find $(MODULES_DIR)/*/ -maxdepth 0 -type d | \
+	xargs -P 4 -I {} bash -c 'echo "$(YELLOW)Validating {}$(NC)" && cd {} && terraform init -backend=false >/dev/null && terraform validate' || failed=$$((failed+1)); \
 	if [ $$failed -gt 0 ]; then \
-		echo "$(RED)✗ $$failed module(s) failed validation$(NC)"; exit 1; \
+		echo "$(RED)✗ Some modules failed validation$(NC)"; exit 1; \
 	else \
 		echo "$(GREEN)✓ All modules validated$(NC)"; \
 	fi
@@ -133,19 +131,11 @@ validate: validate-modules validate-terragrunt ## Run both module and Terragrunt
 
 ##@ Testing
 
-test: ## Run terraform test on all modules
+test: ## Run terraform test on all modules (parallel)
 	@echo "$(BLUE)Running terraform test on all modules$(NC)"
-	@set -e; \
-	failed=0; \
-	for dir in $(MODULES_DIR)/*/; do \
-		echo "$(YELLOW)Testing $$dir$(NC)"; \
-		( cd "$$dir" && terraform init -backend=false >/dev/null && terraform test -parallelism=10 ) || failed=$$((failed+1)); \
-	done; \
-	if [ $$failed -gt 0 ]; then \
-		echo "$(RED)✗ $$failed module(s) failed tests$(NC)"; exit 1; \
-	else \
-		echo "$(GREEN)✓ All modules passed tests$(NC)"; \
-	fi
+	@find $(MODULES_DIR)/*/ -maxdepth 0 -type d | \
+	xargs -P 4 -I {} bash -c 'echo "$(YELLOW)Testing {}$(NC)" && cd {} && terraform init -backend=false >/dev/null && terraform test -parallelism=10'
+	@echo "$(GREEN)✓ All modules passed tests$(NC)"
 
 # -----------------------------------------------------------------------------
 # WORKFLOWS
@@ -160,7 +150,7 @@ plan-all: ## Run Terragrunt plan across all environments and save output
 	failed=0; \
 	for env in production; do \
 		echo "$(YELLOW)==> Planning $$env environment$(NC)"; \
-		if (cd $$env && terragrunt run --all -- plan) > $(PLAN_DIR)/plan-$$env.txt 2>&1; then \
+		if (cd $$env && terragrunt run --all --parallelism 10 -- plan) > $(PLAN_DIR)/plan-$$env.txt 2>&1; then \
 			echo "$(GREEN)✓ $$env plan successful$(NC)"; \
 		else \
 			echo "$(RED)✗ $$env plan failed$(NC)"; \
@@ -174,7 +164,7 @@ plan-all: ## Run Terragrunt plan across all environments and save output
 		echo "$(GREEN)✓ All plans saved to $(PLAN_DIR)/$(NC)"; \
 	fi
 
-ci: fmt-check validate test plan-all ## Run complete CI pipeline (format, validate, test, plan)
+ci: fmt-check validate test plan-all cost
 	@echo "$(GREEN)✓ CI checks passed$(NC)"
 
 # -----------------------------------------------------------------------------
@@ -197,7 +187,7 @@ docker-ci: ## Run CI checks inside Docker container (mimics GitHub Actions)
 		-v $(PWD):/workspace \
 		-w /workspace \
 		helium-ci:latest \
-		bash -c 'git config --global --add safe.directory /workspace && make ci'
+		bash -c 'git config --global --add safe.directory /workspace && make ci && make clean'
 
 docker-build: ## Build the CI Docker image (Terragrunt/OpenTofu toolkit)
 	@echo "$(BLUE)Building Docker image: $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)$(NC)"

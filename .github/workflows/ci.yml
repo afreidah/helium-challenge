@@ -1,42 +1,146 @@
+# =============================================================================
+# CI WORKFLOW
+# =============================================================================
+#
+# Continuous Integration pipeline for Terragrunt/OpenTofu infrastructure code.
+# Runs formatting checks, validation, module tests, and generates plans across
+# all environments on pull requests and branch pushes.
+#
+# Workflow Steps:
+#   1. Build custom CI toolkit Docker image with all required tools
+#   2. Execute CI targets: format check, validate, test, plan
+#   3. Upload plan artifacts for review
+#   4. Post plan results as PR comment for easy review
+#
+# Triggered On:
+#   - Pull requests to main, staging, or production branches
+#   - All branch pushes (ensures PR branches are tested)
+#
+# Required Secrets:
+#   - AWS_ACCESS_KEY_ID: AWS access key for Terraform state and resources
+#   - AWS_SECRET_ACCESS_KEY: AWS secret key for authentication
+#   - AWS_DEFAULT_REGION: Default AWS region for operations
+# =============================================================================
+
 name: CI
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
-    branches:
-      - main
-      - staging
-      - production
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main, staging, production]
+  push:
+    branches: ['**']
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
-  build:
-    name: Run CI
+  ci:
+    name: Run CI in toolkit image
     runs-on: ubuntu-latest
 
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
-      # Optional: add anything else your Makefile depends on
       TF_IN_AUTOMATION: true
       TERRAGRUNT_NON_INTERACTIVE: true
+      CHECKOV_ENABLE_LOGGING: false
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Set Docker image tag
+        id: img
+        run: echo "tag=ci-toolkit:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Install dependencies
+      - name: Build CI toolkit image
+        run: docker build -t "${{ steps.img.outputs.tag }}" .
+
+      - name: Run CI checks in container
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y make
-          pip install --upgrade pip
-          pip install checkov trivy opentofu terragrunt
+          docker run --rm \
+            -e AWS_ACCESS_KEY_ID \
+            -e AWS_SECRET_ACCESS_KEY \
+            -e AWS_DEFAULT_REGION \
+            -e TF_IN_AUTOMATION \
+            -e TERRAGRUNT_NON_INTERACTIVE \
+            -e CHECKOV_ENABLE_LOGGING \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            "${{ steps.img.outputs.tag }}" \
+            bash -lc 'git config --global --add safe.directory /workspace && make ci'
 
-      - name: Run CI pipeline
-        run: make ci
+      - name: Upload plan artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plans
+          path: .ci/plan/*.txt
+          if-no-files-found: ignore
+          retention-days: 7
 
+      - name: Comment plan results on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = '.ci/plan';
+            let body = '## OpenTofu/Terragrunt Plan\n\n';
+
+            if (!fs.existsSync(path)) {
+              body += '_No plan files found (did the plan step run?)_';
+            } else {
+              const files = fs.readdirSync(path).filter(f => f.endsWith('.txt')).sort();
+              if (files.length === 0) {
+                body += '_No plan files found (did the plan step run?)_';
+              } else {
+                for (const f of files) {
+                  const env = f.replace(/^plan-/, '').replace(/\.txt$/, '');
+                  let content = fs.readFileSync(`${path}/${f}`, 'utf8');
+                  
+                  const MAX = 65000;
+                  if (content.length > MAX) {
+                    content = content.slice(0, MAX) + '\n...[truncated]';
+                  }
+                  
+                  body += `<details><summary><strong>${env}</strong></summary>\n\n`;
+                  body += '```diff\n' + content + '\n```\n';
+                  body += '</details>\n\n';
+                }
+              }
+            }
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.rest.issues.listComments({ 
+              owner, 
+              repo, 
+              issue_number, 
+              per_page: 100 
+            });
+            
+            const marker = '<!-- plan-comment -->';
+            const existing = comments.data.find(c => 
+              c.user.type === 'Bot' && c.body && c.body.includes(marker)
+            );
+            const finalBody = `${marker}\n${body}`;
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body: finalBody
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body: finalBody
+              });
+            }

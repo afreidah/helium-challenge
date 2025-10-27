@@ -28,7 +28,7 @@ run "security_defaults" {
     cluster_name               = "test-cluster"
     vpc_id                     = var.vpc_id
     subnet_ids                 = var.subnet_ids
-    cluster_encryption_key_arn = var.test_kms_key_arn  # Changed from eks_encryption_config
+    cluster_encryption_key_arn = var.test_kms_key_arn # Changed from eks_encryption_config
   }
 
   # Assert encryption is configured
@@ -112,8 +112,8 @@ run "endpoint_private_only" {
     vpc_id                     = var.vpc_id
     subnet_ids                 = var.subnet_ids
     cluster_encryption_key_arn = var.test_kms_key_arn
-    endpoint_private_access    = true   # Removed eks_ prefix
-    endpoint_public_access     = false  # Removed eks_ prefix
+    endpoint_private_access    = true  # Removed eks_ prefix
+    endpoint_public_access     = false # Removed eks_ prefix
   }
 
   # Assert private access is enabled
@@ -141,8 +141,8 @@ run "public_access_cidrs" {
     vpc_id                     = var.vpc_id
     subnet_ids                 = var.subnet_ids
     cluster_encryption_key_arn = var.test_kms_key_arn
-    endpoint_public_access     = true            # Removed eks_ prefix
-    public_access_cidrs        = ["10.0.0.0/8"]  # Removed eks_endpoint_ prefix
+    endpoint_public_access     = true           # Removed eks_ prefix
+    public_access_cidrs        = ["10.0.0.0/8"] # Removed eks_endpoint_ prefix
   }
 
   # Assert public access is restricted

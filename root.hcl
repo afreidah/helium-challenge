@@ -558,10 +558,10 @@ locals {
     allow_major_version_upgrade         = false
     apply_immediately                   = false
     publicly_accessible                 = false
-    
+
     # CloudWatch logs
     enabled_cloudwatch_logs_exports = ["postgresql"]
-    
+
     # Backup windows
     preferred_backup_window      = "03:00-04:00"
     preferred_maintenance_window = "sun:04:00-sun:05:00"

@@ -5,7 +5,7 @@
 # Merge to main: Same as PR, then WAIT FOR APPROVAL before apply
 #
 # SETUP REQUIRED REVIEWERS:
-#   1. Go to repo Settings → Environments
+#   1. Go to repo Settings -> Environments
 #   2. Create environment named "production"
 #   3. Add required reviewers (at least 1)
 #   4. Save - apply job will now wait for approval before running
@@ -29,6 +29,11 @@ env:
   AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
   INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
   TF_IN_AUTOMATION: true
+  TERRAGRUNT_LOG_LEVEL: error
+  TF_LOG: error
+  TG_LOG_LEVEL: error
+  TERRAGRUNT_PROVIDER_CACHE: 1
+  TERRAGRUNT_PROVIDER_CACHE_DIR: /tmp/terragrunt-provider-cache
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -75,18 +80,42 @@ jobs:
             const costProdPath = '.ci/plan/cost-production.txt';
             const costStagingPath = '.ci/plan/cost-staging.txt';
 
-            let plan = fs.existsSync(planPath) ? fs.readFileSync(planPath, 'utf8').slice(0, 100000) : 'Plan not found';
-            const costProd = fs.existsSync(costProdPath) ? fs.readFileSync(costProdPath, 'utf8').slice(0, 5000) : 'Not available';
-            const costStaging = fs.existsSync(costStagingPath) ? fs.readFileSync(costStagingPath, 'utf8').slice(0, 5000) : 'Not available';
+            let plan = 'Plan not found';
+            let summary = '';
 
-            const summaryMatch = plan.match(/Plan: (\d+) to add, (\d+) to change, (\d+) to destroy/);
-            const summary = summaryMatch ? `**Summary:** ${summaryMatch[1]} add, ${summaryMatch[2]} change, ${summaryMatch[3]} destroy\n\n` : '';
+            if (fs.existsSync(planPath)) {
+              const fullPlan = fs.readFileSync(planPath, 'utf8');
 
-            const body = '## 📋 Terraform Plan\n\n' + summary + 
-                         '<details><summary>View plan</summary>\n\n```\n' + plan + '\n```\n</details>\n\n' +
-                         '## 💰 Cost Estimates\n\n' +
+              // Extract ALL plan summaries and sum them
+              const planMatches = fullPlan.matchAll(/Plan: (\d+) to add, (\d+) to change, (\d+) to destroy/g);
+              let totalAdd = 0, totalChange = 0, totalDestroy = 0;
+              for (const match of planMatches) {
+                totalAdd += parseInt(match[1]);
+                totalChange += parseInt(match[2]);
+                totalDestroy += parseInt(match[3]);
+              }
+              
+              if (totalAdd > 0 || totalChange > 0 || totalDestroy > 0) {
+                summary = `**Plan Summary:** ${totalAdd} to add, ${totalChange} to change, ${totalDestroy} to destroy\n\n`;
+              }
+
+              // Truncate plan if too long
+              const maxLength = 150000;
+              plan = fullPlan.slice(0, maxLength);
+              if (fullPlan.length > maxLength) {
+                plan += '\n\n[Plan output truncated - download artifacts for full output]';
+              }
+            }
+
+            const costProd = fs.existsSync(costProdPath) ? fs.readFileSync(costProdPath, 'utf8').slice(0, 10000) : 'Cost estimate not available';
+            const costStaging = fs.existsSync(costStagingPath) ? fs.readFileSync(costStagingPath, 'utf8').slice(0, 10000) : 'Cost estimate not available';
+
+            const body = '## Terraform Plan\n\n' + summary + 
+                         '<details><summary>View full plan</summary>\n\n```\n' + plan + '\n```\n</details>\n\n' +
+                         '## Cost Estimates\n\n' +
                          '<details><summary>Production</summary>\n\n```\n' + costProd + '\n```\n</details>\n\n' +
-                         '<details><summary>Staging</summary>\n\n```\n' + costStaging + '\n```\n</details>';
+                         '<details><summary>Staging</summary>\n\n```\n' + costStaging + '\n```\n</details>\n\n' +
+                         '---\n[Download full artifacts](' + context.payload.repository.html_url + '/actions/runs/' + context.runId + ')';
 
             const marker = '<!-- terragrunt-results -->';
             const { owner, repo } = context.repo;

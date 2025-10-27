@@ -16,7 +16,8 @@ ENV TERRAFORM_VERSION=1.13.4 \
     TFLINT_VERSION=0.59.1 \
     TRIVY_VERSION=0.67.2 \
     TERRAFORM_DOCS_VERSION=0.20.0 \
-    GITLEAKS_VERSION=8.21.2
+    GITLEAKS_VERSION=8.21.2 \
+    INFRACOST_VERSION=0.10.42
 
 WORKDIR /tmp
 
@@ -66,6 +67,13 @@ RUN wget -q https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_V
   && chmod +x /usr/local/bin/gitleaks \
   && rm -f gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz
 
+# infracost
+RUN wget -q https://github.com/infracost/infracost/releases/download/v${INFRACOST_VERSION}/infracost-linux-amd64.tar.gz \
+  && tar -xzf infracost-linux-amd64.tar.gz -C /usr/local/bin/ infracost-linux-amd64 \
+  && mv /usr/local/bin/infracost-linux-amd64 /usr/local/bin/infracost \
+  && chmod +x /usr/local/bin/infracost \
+  && rm -f infracost-linux-amd64.tar.gz
+
 # hclfmt (build from source) – Go 1.25.1 satisfies the toolchain requirement
 RUN go install github.com/hashicorp/hcl/v2/cmd/hclfmt@latest \
   && cp /go/bin/hclfmt /usr/local/bin/hclfmt
@@ -78,7 +86,7 @@ FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 LABEL maintainer="8am-project"
-LABEL description="Terragrunt/OpenTofu tooling image: opentofu, terragrunt, terraform, trivy, checkov, tflint, terraform-docs, gitleaks, hclfmt"
+LABEL description="Terragrunt/OpenTofu tooling image: opentofu, terragrunt, terraform, trivy, checkov, tflint, terraform-docs, gitleaks, hclfmt, infracost"
 LABEL version="1.0"
 
 # Runtime deps (keep small)
@@ -103,6 +111,7 @@ COPY --from=builder /usr/local/bin/trivy /usr/local/bin/
 COPY --from=builder /usr/local/bin/terraform-docs /usr/local/bin/
 COPY --from=builder /usr/local/bin/gitleaks /usr/local/bin/
 COPY --from=builder /usr/local/bin/hclfmt /usr/local/bin/
+COPY --from=builder /usr/local/bin/infracost /usr/local/bin/
 
 # Workspace
 WORKDIR /workspace
@@ -122,8 +131,8 @@ RUN echo "========================================" && \
     echo "Checkov:         $(checkov --version 2>/dev/null || true)" && \
     echo "Pre-commit:      $(pre-commit --version 2>/dev/null | awk '{print $2}' || true)" && \
     echo "AWS CLI:         $(aws --version 2>&1 || true)" && \
+    echo "Infracost:       $(infracost --version 2>/dev/null || true)" && \
     echo "========================================"
 
 SHELL ["/bin/bash", "-c"]
 CMD ["/bin/bash"]
-

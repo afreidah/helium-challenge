@@ -206,18 +206,21 @@ docker-clean: ## Remove the CI Docker image and dangling layers
 
 ##@ Cost Estimation
 
-cost: ## Estimate infrastructure costs with Infracost
+cost: ## Estimate infrastructure costs with Infracost for all environments
 	@echo "$(BLUE)Estimating infrastructure costs...$(NC)"
-	@if ! command -v infracost >/dev/null 2>&1; then \
-		echo "$(RED)Infracost not installed$(NC)"; \
-		echo "Install: curl -fsSL https://raw.githubusercontent.com/infracost/infracost/master/scripts/install.sh | sh"; \
-		exit 1; \
-	fi
 	@if [ -z "$$INFRACOST_API_KEY" ]; then \
 		echo "$(RED)INFRACOST_API_KEY not set$(NC)"; \
 		exit 1; \
 	fi
-	@infracost breakdown --path . --format table
+	@mkdir -p $(PLAN_DIR)
+	@for env in production staging; do \
+		echo "$(YELLOW)Estimating costs for $$env...$(NC)"; \
+		(cd $$env && infracost breakdown --path . --format table > ../$(PLAN_DIR)/cost-$$env.txt 2>&1) & \
+	done; \
+	wait
+	@echo "$(GREEN)✓ Cost estimates saved to $(PLAN_DIR)/$(NC)"
+
+.PHONY: cost
 
 # -----------------------------------------------------------------------------
 # DOCS

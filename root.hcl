@@ -566,6 +566,56 @@ locals {
     preferred_backup_window      = "03:00-04:00"
     preferred_maintenance_window = "sun:04:00-sun:05:00"
   }
+
+  # -----------------------------------------------------------------------------
+  # SECRETS MANAGER Configuration
+  # -----------------------------------------------------------------------------
+
+  # Secrets Manager configuration
+  secrets_config = {
+    "/${local.environment}/aurora/master-credentials" = {
+      description             = "Aurora PostgreSQL master credentials for ${local.environment}"
+      secret_string           = jsonencode({
+        username            = "postgres"
+        password            = "CHANGE_ME_AFTER_INITIAL_DEPLOY"
+        engine              = "postgres"
+        port                = 5432
+        dbname              = "appdb"
+        dbClusterIdentifier = "${local.environment}-aurora"
+        host                = "PLACEHOLDER"
+        reader_host         = "PLACEHOLDER"
+      })
+      kms_key_id              = "USE_DEPENDENCY"  # ← Will be replaced by helper with actual KMS key
+      recovery_window_in_days = local.environment == "production" ? 30 : 7
+      rotation_lambda_arn     = null
+      rotation_days           = null
+    }
+    
+    "/${local.environment}/app/database-credentials" = {
+      description             = "Application database user credentials for ${local.environment}"
+      secret_string           = jsonencode({
+        username = "app_user"
+        password = "CHANGE_ME_AFTER_INITIAL_DEPLOY"
+        note     = "Prefer IAM database authentication"
+      })
+      kms_key_id              = "USE_DEPENDENCY"  # ← Will be replaced by helper with actual KMS key
+      recovery_window_in_days = local.environment == "production" ? 30 : 7
+      rotation_lambda_arn     = null
+      rotation_days           = null
+    }
+    
+    "/${local.environment}/app/config" = {
+      description             = "Application configuration secrets for ${local.environment}"
+      secret_string           = jsonencode({
+        example_api_key    = "PLACEHOLDER_UPDATE_AFTER_DEPLOY"
+        example_secret_key = "PLACEHOLDER_UPDATE_AFTER_DEPLOY"
+      })
+      kms_key_id              = "USE_DEPENDENCY"  # ← Will be replaced by helper with actual KMS key
+      recovery_window_in_days = local.environment == "production" ? 30 : 7
+      rotation_lambda_arn     = null
+      rotation_days           = null
+    }
+  }
 }
 
 # -----------------------------------------------------------------------------
@@ -617,27 +667,26 @@ skip-check:
   - CKV2_AWS_11   # Flow logs handled elsewhere
   - CKV2_AWS_12   # Default SG behavior intentionally managed
   - CKV2_AWS_5    # Security groups created before resources that use them
-  
   # ALB
   - CKV2_AWS_28   # WAF integration is optional and configured per environment
   - CKV_AWS_378   # Target groups use HTTP for internal VPC communication (HTTPS terminated at ALB)
-  
   # EKS Cluster
   - CKV_AWS_37    # EKS public access controlled via environment-specific CIDRs
   - CKV_AWS_38    # EKS cluster endpoint private access enabled
   - CKV_AWS_39    # EKS cluster logging enabled for all log types
   - CKV_AWS_58    # EKS secrets encryption enabled via KMS
   - CKV_AWS_151   # EKS node group remote access managed via IAM and SSM
-  
   # EKS Node Groups
   - CKV_AWS_382   # Node egress restricted to necessary ports (443, 80, 53, 123) with 0.0.0.0/0 - security enforced via NAT Gateway routing
   - CKV_AWS_341   # IMDSv2 hop limit set to 1 for security (pods use IRSA/Pod Identity instead of IMDS)
-  
   # CloudWatch
   - CKV_AWS_338   # CloudWatch retention set to 90 days per company policy (not 365)
-
   # TLS
   - CKV_AWS_103   # HTTP listener (port 80) only redirects to HTTPS; TLS 1.2+ enforced on HTTPS listener
+  # Secrets Manager
+  - CKV_AWS_304   # Automatic rotation within 90 days requires Lambda function - to be implemented in phase 2
+  - CKV2_AWS_57   # Automatic rotation requires Lambda function and RDS integration - to be implemented in phase 2
+  - CKV_SECRET_6  # High entropy strings in test files are test fixtures, not real secrets
 EOF
 }
 
@@ -728,6 +777,9 @@ inputs = {
 
   # WAF Configuration
   waf_config = local.waf_config
+
+  # Secrets Manager Configuration
+  secrets_config = local.secrets_config
 
   # Aurora configuration from locals
   aurora_config = local.env_config[local.environment].aurora

@@ -39,6 +39,14 @@ YELLOW := \033[0;33m
 BLUE   := \033[0;36m
 NC     := \033[0m
 
+# Environment variables for all tasks
+export TF_IN_AUTOMATION := true
+export TERRAGRUNT_LOG_LEVEL := error
+export TF_LOG := error
+export TG_LOG_LEVEL := error
+export TERRAGRUNT_PROVIDER_CACHE := 1
+export TERRAGRUNT_PROVIDER_CACHE_DIR := /tmp/terragrunt-provider-cache
+
 .PHONY: help fmt fmt-check validate-modules validate-terragrunt validate test ci plan-all clean docker-build docker-clean docker-ci cost
 
 # -----------------------------------------------------------------------------
@@ -150,7 +158,7 @@ plan-all: ## Run Terragrunt plan across all environments and save output
 	failed=0; \
 	for env in production; do \
 		echo "$(YELLOW)==> Planning $$env environment$(NC)"; \
-		if (cd $$env && TF_IN_AUTOMATION=1 TERRAGRUNT_LOG_LEVEL=error terragrunt run --all -- plan -no-color -compact-warnings) > $(PLAN_DIR)/plan-$$env.txt 2>&1; then \
+		if (cd $$env && terragrunt run --all -- plan -no-color -compact-warnings) > $(PLAN_DIR)/plan-$$env.txt 2>&1; then \
 			echo "$(GREEN)✓ $$env plan successful$(NC)"; \
 		else \
 			echo "$(RED)✗ $$env plan failed$(NC)"; \

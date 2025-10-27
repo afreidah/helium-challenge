@@ -71,88 +71,34 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-
-            // Read plan
             const planPath = '.ci/plan/plan-production.txt';
-            let plan = 'Plan not found';
-            let summary = '';
-            
-            if (fs.existsSync(planPath)) {
-              const fullPlan = fs.readFileSync(planPath, 'utf8');
-              
-              // Extract summary from plan
-              const summaryMatch = fullPlan.match(/Plan: (\d+) to add, (\d+) to change, (\d+) to destroy/);
-              if (summaryMatch) {
-                const [_, add, change, destroy] = summaryMatch;
-                summary = `**📊 Summary:** ${add} to add, ${change} to change, ${destroy} to destroy\n\n`;
-              }
-              
-              // Truncate plan if too long
-              const maxLength = 100000;
-              plan = fullPlan.slice(0, maxLength);
-              if (fullPlan.length > maxLength) {
-                plan += '\n\n⚠️ **Plan truncated - download artifacts for full output**';
-              }
-            }
-
-            // Read production cost
             const costProdPath = '.ci/plan/cost-production.txt';
-            const costProd = fs.existsSync(costProdPath)
-              ? fs.readFileSync(costProdPath, 'utf8').slice(0, 5000)
-              : 'Cost estimate not available';
-
-            // Read staging cost
             const costStagingPath = '.ci/plan/cost-staging.txt';
-            const costStaging = fs.existsSync(costStagingPath)
-              ? fs.readFileSync(costStagingPath, 'utf8').slice(0, 5000)
-              : 'Cost estimate not available';
 
-            const body = `## 📋 Terraform Plan
-            
+            let plan = fs.existsSync(planPath) ? fs.readFileSync(planPath, 'utf8').slice(0, 100000) : 'Plan not found';
+            const costProd = fs.existsSync(costProdPath) ? fs.readFileSync(costProdPath, 'utf8').slice(0, 5000) : 'Not available';
+            const costStaging = fs.existsSync(costStagingPath) ? fs.readFileSync(costStagingPath, 'utf8').slice(0, 5000) : 'Not available';
 
-\`\`\`hcl
-${plan}
-\`\`\`
-</details>
+            const summaryMatch = plan.match(/Plan: (\d+) to add, (\d+) to change, (\d+) to destroy/);
+            const summary = summaryMatch ? `**Summary:** ${summaryMatch[1]} add, ${summaryMatch[2]} change, ${summaryMatch[3]} destroy\n\n` : '';
 
-## 💰 Cost Estimates
-
-<details><summary>Production</summary>
-
-\`\`\`
-${costProd}
-\`\`\`
-</details>
-
-<details><summary>Staging</summary>
-
-\`\`\`
-${costStaging}
-\`\`\`
-</details>
-
----
-📦 [Download full artifacts](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`;
+            const body = '## 📋 Terraform Plan\n\n' + summary + 
+                         '<details><summary>View plan</summary>\n\n```\n' + plan + '\n```\n</details>\n\n' +
+                         '## 💰 Cost Estimates\n\n' +
+                         '<details><summary>Production</summary>\n\n```\n' + costProd + '\n```\n</details>\n\n' +
+                         '<details><summary>Staging</summary>\n\n```\n' + costStaging + '\n```\n</details>';
 
             const marker = '<!-- terragrunt-results -->';
             const { owner, repo } = context.repo;
             const issue_number = context.issue.number;
-
-            const comments = await github.rest.issues.listComments({
-              owner, repo, issue_number
-            });
-
+            const comments = await github.rest.issues.listComments({ owner, repo, issue_number });
             const existing = comments.data.find(c => c.body && c.body.includes(marker));
-            const finalBody = `${marker}\n${body}`;
+            const finalBody = marker + '\n' + body;
 
             if (existing) {
-              await github.rest.issues.updateComment({
-                owner, repo, comment_id: existing.id, body: finalBody
-              });
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: finalBody });
             } else {
-              await github.rest.issues.createComment({
-                owner, repo, issue_number, body: finalBody
-              });
+              await github.rest.issues.createComment({ owner, repo, issue_number, body: finalBody });
             }
 
   # ---------------------------------------------------------------------------

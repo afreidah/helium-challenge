@@ -84,3 +84,4 @@ __pycache__/
 
 .ci/*
 *checkov.yml
+.infracost/*

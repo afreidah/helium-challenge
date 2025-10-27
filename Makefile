@@ -28,8 +28,6 @@
 #   - docker (for containerized workflows)
 # -----------------------------------------------------------------------------
 
-SHELL := /usr/bin/env bash
-
 # Directories
 MODULES_DIR ?= modules
 PLAN_DIR    ?= .ci/plan
@@ -178,6 +176,25 @@ plan-all: ## Run Terragrunt plan across all environments and save output
 
 ci: fmt-check validate test plan-all ## Run complete CI pipeline (format, validate, test, plan)
 	@echo "$(GREEN)✓ CI checks passed$(NC)"
+
+# -----------------------------------------------------------------------------
+# INFRACOST
+# -----------------------------------------------------------------------------
+
+cost: ## Estimate infrastructure costs with Infracost
+	@echo "$(BLUE)Estimating infrastructure costs...$(NC)"
+	@if ! command -v infracost >/dev/null 2>&1; then \
+		echo "$(RED)Infracost not installed$(NC)"; \
+		echo "Install: curl -fsSL https://raw.githubusercontent.com/infracost/infracost/master/scripts/install.sh | sh"; \
+		exit 1; \
+	fi
+	@if [ -z "$$INFRACOST_API_KEY" ]; then \
+		echo "$(RED)INFRACOST_API_KEY not set$(NC)"; \
+		exit 1; \
+	fi
+	@infracost breakdown --path . --format table
+
+.PHONY: cost
 
 # -----------------------------------------------------------------------------
 # DOCKER

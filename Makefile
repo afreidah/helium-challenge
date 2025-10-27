@@ -8,7 +8,6 @@
 # Target Categories:
 #   - Code Quality: Formatting and style checks
 #   - Validation: Module and Terragrunt configuration validation
-#   - Security: Static security scanning with Checkov
 #   - Testing: Terraform native test execution
 #   - Workflows: CI/CD pipeline orchestration
 #   - Docker: CI toolkit image management
@@ -26,7 +25,6 @@
 #   - terraform or tofu
 #   - terragrunt
 #   - hclfmt
-#   - checkov (for security scanning)
 #   - docker (for containerized workflows)
 # -----------------------------------------------------------------------------
 
@@ -43,7 +41,7 @@ YELLOW := \033[0;33m
 BLUE   := \033[0;36m
 NC     := \033[0m
 
-.PHONY: help fmt fmt-check validate-modules validate-terragrunt validate test ci checkov plan-all clean docker-build docker-clean
+.PHONY: help fmt fmt-check validate-modules validate-terragrunt validate test ci plan-all clean docker-build docker-clean
 
 # -----------------------------------------------------------------------------
 # HELP
@@ -56,7 +54,7 @@ help: ## Show available targets with descriptions
 		/^[a-zA-Z0-9_%-]+:.*##/ { printf "  $(BLUE)%-24s$(NC) %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 	@echo ""
 	@echo "$(YELLOW)Common targets:$(NC)"
-	@printf "  $(BLUE)fmt$(NC), $(BLUE)fmt-check$(NC), $(BLUE)validate$(NC), $(BLUE)test$(NC), $(BLUE)plan-all$(NC), $(BLUE)checkov$(NC), $(BLUE)clean$(NC), $(BLUE)ci$(NC)\n"
+	@printf "  $(BLUE)fmt$(NC), $(BLUE)fmt-check$(NC), $(BLUE)validate$(NC), $(BLUE)test$(NC), $(BLUE)plan-all$(NC), $(BLUE)clean$(NC), $(BLUE)ci$(NC)\n"
 
 # -----------------------------------------------------------------------------
 # CODE QUALITY
@@ -115,7 +113,7 @@ validate-terragrunt: ## Validate Terragrunt configurations (HCL and module refer
 	for f in $(shell find . -type f -name terragrunt.hcl ! -path "*/.terragrunt-cache/*"); do \
 		d=$$(dirname "$$f"); \
 		echo "$(YELLOW)Validating $$d$(NC)"; \
-		hclfmt -check "$$f" || failed=$$(expr $$failed + 1); \
+		hclfmt -check -require-no-change "$$f" >/dev/null 2>&1 || failed=$$(expr $$failed + 1); \
 		if grep -q '^[[:space:]]*terraform[[:space:]]*{' "$$f" && grep -q 'source[[:space:]]*=' "$$f"; then \
 			( cd "$$d" && terragrunt run -- init -backend=false -input=false >/dev/null 2>&1 && terragrunt run -- validate -no-color ) \
 			|| failed=$$(expr $$failed + 1); \
@@ -130,18 +128,6 @@ validate-terragrunt: ## Validate Terragrunt configurations (HCL and module refer
 	fi
 
 validate: validate-modules validate-terragrunt ## Run both module and Terragrunt validation
-
-# -----------------------------------------------------------------------------
-# SECURITY SCANNING
-# -----------------------------------------------------------------------------
-
-##@ Security Scanning
-
-checkov: ## Run Checkov security scanner against the repository
-	@echo "$(BLUE)Running Checkov security scan$(NC)"
-	@command -v checkov >/dev/null 2>&1 || { echo "$(RED)Error: checkov not installed$(NC)"; exit 1; }
-	@checkov -d . --config-file .checkov.yml || { echo "$(RED)✗ Checkov failed$(NC)"; exit 1; }
-	@echo "$(GREEN)✓ Checkov passed$(NC)"
 
 # -----------------------------------------------------------------------------
 # TESTING

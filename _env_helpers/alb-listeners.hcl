@@ -1,12 +1,12 @@
 # -----------------------------------------------------------------------------
-# ALB ENVIRONMENT HELPER
+# ALB LISTENERS ENVIRONMENT HELPER
 # -----------------------------------------------------------------------------
-# This helper creates an Application Load Balancer with configuration defined
-# in root.hcl and dependencies on general-networking and security-groups-alb.
+# This helper creates ALB listeners that attach to an existing ALB and route
+# traffic to target groups. Configuration defined in root.hcl or environment.
 # -----------------------------------------------------------------------------
 
 terraform {
-  source = "${get_repo_root()}/modules/alb"
+  source = "${get_repo_root()}/modules/alb-listeners"
 }
 
 # -----------------------------------------------------------------------------
@@ -21,23 +21,24 @@ locals {
 # Dependencies
 # -----------------------------------------------------------------------------
 
-dependency "general_networking" {
-  config_path  = "../general-networking"
+dependency "alb" {
+  config_path  = "../alb"
   skip_outputs = true
 
   mock_outputs = {
-    vpc_id             = "vpc-mock1234567890abc"
-    public_subnet_ids  = ["subnet-mock1", "subnet-mock2"]
-    private_subnet_ids = ["subnet-mock3", "subnet-mock4"]
+    alb_arn      = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/mock-alb/1234567890abcdef"
+    alb_dns_name = "mock-alb-123456789.us-east-1.elb.amazonaws.com"
   }
 }
 
-dependency "security_groups_alb" {
-  config_path  = "../security-groups-alb"
+dependency "alb_target_groups" {
+  config_path  = "../alb-target-groups"
   skip_outputs = true
 
   mock_outputs = {
-    security_group_id = "sg-mock1234567890abc"
+    target_group_arns = {
+      app = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/mock-app-tg/1234567890abcdef"
+    }
   }
 }
 
@@ -46,15 +47,11 @@ dependency "security_groups_alb" {
 # -----------------------------------------------------------------------------
 
 inputs = {
-  # Pass the entire alb_config as a nested object with required fields added
-  alb_config = merge(
-    local.root.inputs.alb_config,
-    {
-      name_suffix        = "alb"
-      subnet_ids         = dependency.general_networking.outputs.public_subnet_ids
-      security_group_ids = [dependency.security_groups_alb.outputs.security_group_id]
-    }
-  )
+  alb_arn = dependency.alb.outputs.alb_arn
+
+  # Listeners and listener_rules from root.hcl
+  listeners      = local.root.inputs.listeners
+  listener_rules = lookup(local.root.inputs, "listener_rules", {})
 
   # Core identity from root (inherited automatically via root.hcl inputs)
   # environment, region, component, common_tags

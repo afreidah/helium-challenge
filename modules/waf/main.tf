@@ -3,9 +3,9 @@
 # -----------------------------------------------------------------------------
 #
 # This module creates an AWS WAFv2 WebACL with configurable managed rule
-# groups, rate limiting, and geographic blocking for application protection.
-# The WebACL can be scoped for regional resources like Application Load
-# Balancers or for global CloudFront distributions.
+# groups, rate limiting, geographic blocking, and logging for application 
+# protection. The WebACL can be scoped for regional resources like Application 
+# Load Balancers or for global CloudFront distributions.
 #
 # AWS managed rule groups provide protection against common vulnerabilities
 # including OWASP Top 10 threats, known malicious IP addresses, and suspicious
@@ -13,9 +13,9 @@
 # individual IP addresses. Geographic blocking allows traffic restriction based
 # on source country codes using ISO 3166-1 alpha-2 format.
 #
-# CloudWatch metrics and sampled request logging enable monitoring and analysis
-# of blocked and allowed traffic patterns. Each rule includes configurable
-# visibility settings for granular observability.
+# CloudWatch metrics, sampled request logging, and full request logging enable 
+# comprehensive monitoring and analysis of blocked and allowed traffic patterns. 
+# Each rule includes configurable visibility settings for granular observability.
 #
 # IMPORTANT: WebACL capacity is consumed by each enabled rule and managed rule
 # group. Monitor capacity usage to ensure it remains within AWS limits. Scope
@@ -208,4 +208,41 @@ resource "aws_wafv2_web_acl" "this" {
       Name = var.name
     }
   )
+}
+
+# -----------------------------------------------------------------------------
+# WAF LOGGING CONFIGURATION
+# -----------------------------------------------------------------------------
+
+# CloudWatch Log Group for WAF logs
+# Stores full request logs for security analysis and compliance
+resource "aws_cloudwatch_log_group" "waf" {
+  count = var.enable_logging ? 1 : 0
+
+  name              = "/aws/wafv2/${var.name}"
+  retention_in_days = var.log_retention_days
+  kms_key_id        = var.log_kms_key_id
+
+  tags = var.tags
+}
+
+# WAF Logging Configuration
+# Sends all WAF traffic logs to CloudWatch with optional field redaction
+resource "aws_wafv2_web_acl_logging_configuration" "this" {
+  count = var.enable_logging ? 1 : 0
+
+  resource_arn            = aws_wafv2_web_acl.this.arn
+  log_destination_configs = [aws_cloudwatch_log_group.waf[0].arn]
+
+  # Redact sensitive fields from logs (e.g., Authorization headers, Cookies)
+  dynamic "redacted_fields" {
+    for_each = var.redacted_fields
+    content {
+      single_header {
+        name = redacted_fields.value
+      }
+    }
+  }
+
+  depends_on = [aws_cloudwatch_log_group.waf]
 }

@@ -1,12 +1,12 @@
 # -----------------------------------------------------------------------------
-# ALB ENVIRONMENT HELPER
+# ALB TARGET GROUPS ENVIRONMENT HELPER
 # -----------------------------------------------------------------------------
-# This helper creates an Application Load Balancer with configuration defined
-# in root.hcl and dependencies on general-networking and security-groups-alb.
+# This helper creates ALB target groups with configuration defined in root.hcl
+# and dependency on general-networking for VPC ID.
 # -----------------------------------------------------------------------------
 
 terraform {
-  source = "${get_repo_root()}/modules/alb"
+  source = "${get_repo_root()}/modules/alb-target-groups"
 }
 
 # -----------------------------------------------------------------------------
@@ -32,29 +32,15 @@ dependency "general_networking" {
   }
 }
 
-dependency "security_groups_alb" {
-  config_path  = "../security-groups-alb"
-  skip_outputs = true
-
-  mock_outputs = {
-    security_group_id = "sg-mock1234567890abc"
-  }
-}
-
 # -----------------------------------------------------------------------------
 # Inputs
 # -----------------------------------------------------------------------------
 
 inputs = {
-  # Pass the entire alb_config as a nested object with required fields added
-  alb_config = merge(
-    local.root.inputs.alb_config,
-    {
-      name_suffix        = "alb"
-      subnet_ids         = dependency.general_networking.outputs.public_subnet_ids
-      security_group_ids = [dependency.security_groups_alb.outputs.security_group_id]
-    }
-  )
+  vpc_id = dependency.general_networking.outputs.vpc_id
+
+  # Target groups configuration from root.hcl or environment override
+  # target_groups will be provided by environment-specific inputs merge
 
   # Core identity from root (inherited automatically via root.hcl inputs)
   # environment, region, component, common_tags

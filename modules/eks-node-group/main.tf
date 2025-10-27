@@ -202,13 +202,56 @@ resource "aws_security_group_rule" "node_egress_cluster" {
   source_security_group_id = var.cluster_security_group_id
 }
 
-# Allow nodes internet access for pulling images, updates, and AWS APIs
-resource "aws_security_group_rule" "node_egress_internet" {
-  description       = "Allow nodes to communicate with internet"
+# Allow nodes HTTPS egress for pulling images and AWS API calls
+resource "aws_security_group_rule" "node_egress_https" {
+  description       = "Allow nodes HTTPS egress to internet"
   type              = "egress"
-  from_port         = 0
-  to_port           = 0
-  protocol          = "-1"
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  security_group_id = aws_security_group.node.id
+  cidr_blocks       = ["0.0.0.0/0"]
+}
+
+# Allow nodes HTTP egress for package updates
+resource "aws_security_group_rule" "node_egress_http" {
+  description       = "Allow nodes HTTP egress for package updates"
+  type              = "egress"
+  from_port         = 80
+  to_port           = 80
+  protocol          = "tcp"
+  security_group_id = aws_security_group.node.id
+  cidr_blocks       = ["0.0.0.0/0"]
+}
+
+# Allow nodes NTP egress for time synchronization
+resource "aws_security_group_rule" "node_egress_ntp" {
+  description       = "Allow nodes NTP egress for time sync"
+  type              = "egress"
+  from_port         = 123
+  to_port           = 123
+  protocol          = "udp"
+  security_group_id = aws_security_group.node.id
+  cidr_blocks       = ["0.0.0.0/0"]
+}
+
+# Allow nodes DNS egress
+resource "aws_security_group_rule" "node_egress_dns_tcp" {
+  description       = "Allow nodes DNS egress (TCP)"
+  type              = "egress"
+  from_port         = 53
+  to_port           = 53
+  protocol          = "tcp"
+  security_group_id = aws_security_group.node.id
+  cidr_blocks       = ["0.0.0.0/0"]
+}
+
+resource "aws_security_group_rule" "node_egress_dns_udp" {
+  description       = "Allow nodes DNS egress (UDP)"
+  type              = "egress"
+  from_port         = 53
+  to_port           = 53
+  protocol          = "udp"
   security_group_id = aws_security_group.node.id
   cidr_blocks       = ["0.0.0.0/0"]
 }

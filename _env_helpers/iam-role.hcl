@@ -24,9 +24,9 @@ locals {
 inputs = {
   environment = local.root.inputs.environment
   region      = local.root.inputs.region
-  
+
   # This will be overridden by the environment-level inputs merge
   role_config = {}
-  
+
   tags = local.root.inputs.common_tags
 }

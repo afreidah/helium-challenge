@@ -15,7 +15,7 @@ terraform {
 
 dependency "general_networking" {
   config_path = "../general-networking"
-  
+
   mock_outputs = {
     vpc_id = "vpc-mock1234567890abc"
   }
@@ -26,11 +26,11 @@ dependency "general_networking" {
 # -----------------------------------------------------------------------------
 
 inputs = {
-  vpc_id      = dependency.general_networking.outputs.vpc_id
-  
+  vpc_id = dependency.general_networking.outputs.vpc_id
+
   # These will all be provided by root.hcl through the include
   # environment, region, tags, etc. are inherited
-  
+
   # This will be overridden by the environment-level inputs merge
   security_group_rules = {}
 }

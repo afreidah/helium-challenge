@@ -2,43 +2,41 @@
 # APPLICATION LOAD BALANCER MODULE
 # -----------------------------------------------------------------------------
 #
-# This module creates an Application Load Balancer (ALB) with configurable
-# listeners, target groups, and security settings for routing HTTP/HTTPS
-# traffic to backend application instances.
-#
-# The ALB configuration is passed as a single object from root.hcl, making
-# it easy to define ALB templates centrally and deploy them consistently
-# across environments with automatic environment-based naming.
+# This module creates an Application Load Balancer (ALB) resource without
+# listeners or target groups. Listeners and target groups are managed by
+# separate modules with proper dependency chains.
 #
 # Components Created:
 #   - Application Load Balancer: Layer 7 load balancer for HTTP/HTTPS traffic
-#   - Target Groups: Backend instance/IP pools for traffic distribution
-#   - HTTP Listener: Port 80 listener with redirect or forward action
-#   - HTTPS Listener: Optional port 443 listener with SSL/TLS termination
 #
 # Features:
 #   - Centralized ALB configuration in root.hcl
 #   - Automatic name prefixing with environment
-#   - Automatic HTTP to HTTPS redirect when certificate provided
-#   - Multiple target group support with independent health checks
-#   - Session stickiness configuration per target group
 #   - Cross-zone load balancing for high availability
 #   - HTTP/2 support for improved performance
 #   - Invalid header field filtering for security
 #   - Optional access logging to S3
+#   - Desync mitigation for security
+#   - XFF header processing configuration
 #
 # Security Model:
-#   - TLS 1.2 minimum policy for HTTPS listeners
 #   - Invalid header fields dropped by default
 #   - Security groups control inbound/outbound traffic (from dependency)
 #   - Optional WAF integration for application layer protection
+#   - Desync mitigation enabled by default
+#
+# Dependency Chain:
+#   1. general-networking (VPC, subnets)
+#   2. security-groups-alb (security group for ALB)
+#   3. alb (this module - creates load balancer)
+#   4. alb-target-groups (creates target groups)
+#   5. alb-listeners (creates listeners, attaches to ALB and target groups)
 #
 # IMPORTANT:
-#   - HTTP listener behavior changes based on certificate_arn presence
-#   - Target groups support both instance and IP target types
-#   - Health checks are independent per target group
-#   - Deletion protection disabled by default for non-production flexibility
 #   - ALB name automatically prefixed with environment for uniqueness
+#   - Deletion protection disabled by default for non-production flexibility
+#   - Listeners and target groups managed by separate modules
+#   - Subnets must be public for internet-facing ALBs
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
@@ -52,7 +50,7 @@ resource "aws_lb" "this" {
   #tfsec:ignore:aws-elb-alb-not-public Intentional: Public ALB by design
   name               = "${var.environment}-${var.alb_config.name_suffix}"
   internal           = var.alb_config.internal
-  load_balancer_type = "application"
+  load_balancer_type = var.alb_config.load_balancer_type
   security_groups    = var.alb_config.security_group_ids
   subnets            = var.alb_config.subnet_ids
 
@@ -61,163 +59,29 @@ resource "aws_lb" "this" {
   enable_cross_zone_load_balancing = var.alb_config.enable_cross_zone_load_balancing
   idle_timeout                     = var.alb_config.idle_timeout
   drop_invalid_header_fields       = var.alb_config.drop_invalid_header_fields
+  desync_mitigation_mode           = var.alb_config.desync_mitigation_mode
+  enable_waf_fail_open             = var.alb_config.enable_waf_fail_open
+  preserve_host_header             = var.alb_config.preserve_host_header
+  enable_xff_client_port           = var.alb_config.enable_xff_client_port
+  xff_header_processing_mode       = var.alb_config.xff_header_processing_mode
 
   # -------------------------------------------------------------------------
   # ACCESS LOGGING
   # -------------------------------------------------------------------------
   # Optional S3 access logs for request-level visibility
   dynamic "access_logs" {
-    for_each = var.alb_config.access_logs_enabled && var.alb_config.access_logs_bucket != null ? [1] : []
+    for_each = var.alb_config.access_logs.enabled ? [1] : []
     content {
-      bucket  = var.alb_config.access_logs_bucket
+      bucket  = var.alb_config.access_logs.bucket
+      prefix  = var.alb_config.access_logs.prefix
       enabled = true
     }
   }
 
   tags = merge(
-    var.tags,
+    var.common_tags,
     {
       Name = "${var.environment}-${var.alb_config.name_suffix}"
     }
   )
-}
-
-# -----------------------------------------------------------------------------
-# WAF ASSOCIATION
-# -----------------------------------------------------------------------------
-# Associates Web Application Firewall with ALB if WAF ARN provided
-# Provides application layer protection against common exploits
-
-resource "aws_wafv2_web_acl_association" "this" {
-  for_each = var.alb_config.waf_web_acl_arn != null ? { waf = var.alb_config.waf_web_acl_arn } : {}
-
-  resource_arn = aws_lb.this.arn
-  web_acl_arn  = each.value
-}
-
-# -----------------------------------------------------------------------------
-# TARGET GROUPS
-# -----------------------------------------------------------------------------
-# Backend pools for routing traffic to application instances or IPs
-# Each target group has independent configuration and health checks
-# Names are automatically prefixed and truncated to 32 character limit
-
-resource "aws_lb_target_group" "this" {
-  for_each             = var.alb_config.target_groups
-  name                 = trimsuffix(substr("${var.environment}-${var.alb_config.name_suffix}-${each.key}-tg", 0, 32), "-")
-  port                 = each.value.port
-  protocol             = each.value.protocol
-  vpc_id               = var.vpc_id
-  target_type          = each.value.target_type
-  deregistration_delay = each.value.deregistration_delay
-
-  # -------------------------------------------------------------------------
-  # HEALTH CHECK CONFIGURATION
-  # -------------------------------------------------------------------------
-  # Determines target availability for traffic routing
-  health_check {
-    enabled             = each.value.health_check.enabled
-    healthy_threshold   = each.value.health_check.healthy_threshold
-    interval            = each.value.health_check.interval
-    matcher             = each.value.health_check.matcher
-    path                = each.value.health_check.path
-    port                = each.value.health_check.port
-    protocol            = each.value.health_check.protocol
-    timeout             = each.value.health_check.timeout
-    unhealthy_threshold = each.value.health_check.unhealthy_threshold
-  }
-
-  # -------------------------------------------------------------------------
-  # SESSION STICKINESS
-  # -------------------------------------------------------------------------
-  # Optional cookie-based session affinity to same target
-  dynamic "stickiness" {
-    for_each = each.value.stickiness != null ? [each.value.stickiness] : []
-    content {
-      enabled         = stickiness.value.enabled
-      type            = stickiness.value.type
-      cookie_duration = stickiness.value.cookie_duration
-    }
-  }
-
-  tags = merge(
-    var.tags,
-    {
-      Name = "${var.environment}-${var.alb_config.name_suffix}-${each.key}-tg"
-    }
-  )
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
-# -----------------------------------------------------------------------------
-# HTTP LISTENER (PORT 80)
-# -----------------------------------------------------------------------------
-# Handles all HTTP traffic on port 80
-# Behavior depends on certificate_arn:
-#   - With certificate: Redirects to HTTPS (301 permanent redirect)
-#   - Without certificate: Forwards directly to target group
-
-resource "aws_lb_listener" "http" {
-  #tfsec:ignore:aws-elb-http-not-used HTTP redirects to HTTPS when certificate is provided
-  #checkov:skip=CKV_AWS_2:HTTP listener redirects to HTTPS
-  #checkov:skip=CKV_AWS_103:HTTP listener redirects to HTTPS
-  load_balancer_arn = aws_lb.this.arn
-  port              = 80
-  protocol          = "HTTP"
-
-  # -------------------------------------------------------------------------
-  # REDIRECT TO HTTPS
-  # -------------------------------------------------------------------------
-  # Used when certificate_arn is provided for secure communication
-  dynamic "default_action" {
-    for_each = var.alb_config.certificate_arn != null ? [1] : []
-    content {
-      type = "redirect"
-      redirect {
-        port        = "443"
-        protocol    = "HTTPS"
-        status_code = "HTTP_301"
-      }
-    }
-  }
-
-  # -------------------------------------------------------------------------
-  # FORWARD TO TARGET GROUP
-  # -------------------------------------------------------------------------
-  # Used when certificate_arn is null (HTTP-only configuration)
-  dynamic "default_action" {
-    for_each = var.alb_config.certificate_arn == null ? [1] : []
-    content {
-      type             = "forward"
-      target_group_arn = length(var.alb_config.target_groups) > 0 ? aws_lb_target_group.this[keys(var.alb_config.target_groups)[0]].arn : null
-    }
-  }
-
-  tags = var.tags
-}
-
-# -----------------------------------------------------------------------------
-# HTTPS LISTENER (PORT 443)
-# -----------------------------------------------------------------------------
-# Handles HTTPS traffic with SSL/TLS termination
-# Only created when certificate_arn is provided
-
-resource "aws_lb_listener" "https" {
-  for_each = var.alb_config.certificate_arn != null ? { https = var.alb_config.certificate_arn } : {}
-
-  load_balancer_arn = aws_lb.this.arn
-  port              = 443
-  protocol          = "HTTPS"
-  ssl_policy        = "ELBSecurityPolicy-TLS-1-2-2017-01"
-  certificate_arn   = each.value
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.this[keys(var.alb_config.target_groups)[0]].arn
-  }
-
-  tags = var.tags
 }

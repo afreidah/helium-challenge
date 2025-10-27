@@ -12,30 +12,97 @@
 #   - Security Groups: Network access control for control plane
 #   - CloudWatch Logs: Control plane audit and diagnostic logging
 #   - OIDC Provider: IAM Roles for Service Accounts (IRSA) integration
-#   - EKS Add-ons: VPC CNI, CoreDNS, kube-proxy
+#   - EKS Add-ons: VPC CNI, CoreDNS, kube-proxy, Pod Identity Agent
 #   - AWS Auth ConfigMap: IAM to Kubernetes RBAC mapping
+#   - KMS Key: Optional dedicated key for secrets encryption
 #
 # Features:
-#   - Secrets encryption at rest using KMS
-#   - Control plane logging to CloudWatch
+#   - Secrets encryption at rest using KMS (dedicated or provided key)
+#   - Control plane logging to CloudWatch (configurable)
 #   - Private and/or public API endpoint access
 #   - IRSA support for pod-level IAM permissions
+#   - Pod Identity Agent for simplified IAM integration
 #   - Automated add-on management with version control
-#   - IAM-to-Kubernetes authentication via aws-auth ConfigMap
+#   - IAM-to-Kubernetes authentication via aws-auth ConfigMap or API mode
+#   - Cluster creator admin permissions (configurable)
 #
 # Security Model:
 #   - Secrets Encryption: KMS encryption for Kubernetes secrets
 #   - Network Isolation: Security groups control control plane access
 #   - Audit Logging: CloudWatch logs for compliance and security analysis
 #   - Least Privilege IAM: Separate roles for cluster and service accounts
-#   - IRSA: Pod-level IAM permissions without node-level credentials
+#   - IRSA/Pod Identity: Pod-level IAM permissions without node-level credentials
+#   - IMDSv2: Required on all nodes for metadata security
 #
 # IMPORTANT:
-#   - Cluster encryption key must be provided via cluster_encryption_key_arn
+#   - Cluster encryption key can be provided or module will create dedicated key
 #   - OIDC provider enables IRSA for secure pod authentication
 #   - aws-auth ConfigMap management requires kubernetes provider configuration
 #   - Add-on versions should be compatible with kubernetes_version
+#   - Pod Identity Agent is recommended over IRSA for new workloads
 # -----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
+# KMS KEY FOR SECRETS ENCRYPTION (OPTIONAL)
+# -----------------------------------------------------------------------------
+
+# KMS key for EKS secrets encryption (created only if kms_key_arn not provided)
+# Provides dedicated encryption key per cluster for security isolation
+resource "aws_kms_key" "eks_secrets" {
+  count = var.eks_encryption_config.kms_key_arn == null ? 1 : 0
+
+  description             = "${var.cluster_name}-eks-secrets"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "Enable IAM User Permissions"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow EKS cluster to use the key"
+        Effect = "Allow"
+        Principal = {
+          AWS = aws_iam_role.cluster.arn
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey",
+          "kms:Encrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:CreateGrant",
+          "kms:ListGrants",
+          "kms:RevokeGrant"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.cluster_name}-eks-secrets"
+    }
+  )
+}
+
+# KMS key alias for easier identification
+resource "aws_kms_alias" "eks_secrets" {
+  count = var.eks_encryption_config.kms_key_arn == null ? 1 : 0
+
+  name          = "alias/${var.cluster_name}-eks-secrets"
+  target_key_id = aws_kms_key.eks_secrets[0].key_id
+}
 
 # -----------------------------------------------------------------------------
 # EKS CLUSTER IAM ROLE
@@ -146,7 +213,7 @@ resource "aws_cloudwatch_log_group" "cluster" {
 # -----------------------------------------------------------------------------
 
 # Amazon EKS managed Kubernetes cluster
-# Provides managed control plane with optional encryption and logging
+# Provides managed control plane with encryption, logging, and modern auth
 resource "aws_eks_cluster" "this" {
   name     = var.cluster_name
   role_arn = aws_iam_role.cluster.arn
@@ -168,25 +235,44 @@ resource "aws_eks_cluster" "this" {
   # ENCRYPTION CONFIGURATION
   # -------------------------------------------------------------------------
   # Encrypts Kubernetes secrets at rest using KMS
+  # Uses provided key or module-created dedicated key
   encryption_config {
+    resources = var.eks_encryption_config.resources
+
     provider {
-      key_arn = var.cluster_encryption_key_arn
+      key_arn = (
+        var.eks_encryption_config.kms_key_arn != null
+        ? var.eks_encryption_config.kms_key_arn
+        : aws_kms_key.eks_secrets[0].arn
+      )
     }
-    resources = ["secrets"]
+  }
+
+  # -------------------------------------------------------------------------
+  # ACCESS CONFIGURATION
+  # -------------------------------------------------------------------------
+  # Authentication mode and cluster creator permissions
+  # API_AND_CONFIG_MAP: Supports both IAM and aws-auth ConfigMap (default)
+  # API: IAM only (recommended for new clusters)
+  access_config {
+    authentication_mode                         = var.eks_authentication_mode
+    bootstrap_cluster_creator_admin_permissions = var.eks_bootstrap_cluster_creator_admin_permissions
   }
 
   # -------------------------------------------------------------------------
   # CONTROL PLANE LOGGING
   # -------------------------------------------------------------------------
   # Enable control plane logs for audit and diagnostics
-  enabled_cluster_log_types = var.enabled_cluster_log_types
+  # Conditional based on eks_enable_cluster_logging variable
+  enabled_cluster_log_types = var.eks_enable_cluster_logging ? var.enabled_cluster_log_types : []
 
   tags = var.tags
 
   depends_on = [
     aws_iam_role_policy_attachment.cluster_policy,
     aws_iam_role_policy_attachment.cluster_vpc_resource_controller,
-    aws_cloudwatch_log_group.cluster
+    aws_cloudwatch_log_group.cluster,
+    aws_kms_key.eks_secrets
   ]
 }
 
@@ -237,6 +323,23 @@ resource "aws_eks_addon" "kube_proxy" {
   cluster_name                = aws_eks_cluster.this.name
   addon_name                  = "kube-proxy"
   addon_version               = var.kube_proxy_version
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "PRESERVE"
+
+  tags = var.tags
+}
+
+# -------------------------------------------------------------------------
+# POD IDENTITY AGENT ADD-ON
+# -------------------------------------------------------------------------
+# EKS Pod Identity Agent for simplified IAM integration
+# Recommended over IRSA for new workloads (no OIDC provider required)
+resource "aws_eks_addon" "pod_identity_agent" {
+  count = var.eks_enable_pod_identity_agent ? 1 : 0
+
+  cluster_name                = aws_eks_cluster.this.name
+  addon_name                  = "eks-pod-identity-agent"
+  addon_version               = var.eks_pod_identity_agent_version
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "PRESERVE"
 
@@ -318,6 +421,7 @@ data "aws_caller_identity" "current" {}
 
 # aws-auth ConfigMap for mapping IAM roles/users to Kubernetes RBAC
 # Enables AWS IAM entities to authenticate to the Kubernetes cluster
+# Only created if manage_aws_auth_configmap is true and auth mode supports it
 resource "kubernetes_config_map_v1_data" "aws_auth" {
   count = var.manage_aws_auth_configmap ? 1 : 0
 

@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# SSM PARAMETER STORE MODULE VERSION REQUIREMENTS
+# AURORA POSTGRESQL MODULE VERSION REQUIREMENTS
 # -----------------------------------------------------------------------------
 
 terraform {

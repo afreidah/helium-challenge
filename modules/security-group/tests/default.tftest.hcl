@@ -40,8 +40,8 @@ run "name_and_tag_interpolation" {
   variables {
     environment = "staging"
     security_group_rules = {
-      name_suffix   = "alb"
-      description   = "Security group for Application Load Balancer"
+      name_suffix = "alb"
+      description = "Security group for Application Load Balancer"
       ingress_rules = [
         {
           from_port   = 443
@@ -82,8 +82,8 @@ run "multiple_ingress_rules" {
 
   variables {
     security_group_rules = {
-      name_suffix   = "alb"
-      description   = "ALB security group"
+      name_suffix = "alb"
+      description = "ALB security group"
       ingress_rules = [
         {
           from_port   = 80
@@ -139,8 +139,8 @@ run "no_egress_rules" {
 
   variables {
     security_group_rules = {
-      name_suffix   = "aurora-postgresql"
-      description   = "Aurora security group"
+      name_suffix = "aurora-postgresql"
+      description = "Aurora security group"
       ingress_rules = [
         {
           from_port   = 5432

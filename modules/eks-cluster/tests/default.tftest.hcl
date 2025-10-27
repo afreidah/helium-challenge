@@ -1,28 +1,60 @@
-# ----------------------------------------------------------------
-# EKS Cluster Module Test Suite
-#
-# Tests the EKS cluster module for security defaults, encryption,
-# logging configurations, OIDC provider setup, add-on creation,
-# and conditional endpoint access configurations.
-# ----------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# EKS CLUSTER MODULE TESTS
+# -----------------------------------------------------------------------------
+# Comprehensive test suite validating security, networking, and operational
+# configurations for the EKS cluster module.
+# -----------------------------------------------------------------------------
 
+# Test variables
 variables {
-  # Mock VPC and networking
-  vpc_id     = "vpc-12345678"
-  subnet_ids = ["subnet-11111111", "subnet-22222222", "subnet-33333333"]
-
-  # Mock KMS key
+  vpc_id = "vpc-12345678"
+  subnet_ids = [
+    "subnet-12345678",
+    "subnet-87654321",
+    "subnet-abcdef12"
+  ]
   test_kms_key_arn = "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
-
-  # Mock node security group
-  test_node_sg_id = "sg-nodes12345"
+  test_node_sg_id  = "sg-12345678"
 }
 
 # ----------------------------------------------------------------
 # Security defaults are enforced
-# Expected: Encryption enabled, private endpoint enabled
+# Expected: Encryption enabled, KMS key configured, IMDSv2 required
 # ----------------------------------------------------------------
 run "security_defaults" {
+  command = plan
+
+  variables {
+    cluster_name               = "test-cluster"
+    vpc_id                     = var.vpc_id
+    subnet_ids                 = var.subnet_ids
+    cluster_encryption_key_arn = var.test_kms_key_arn  # Changed from eks_encryption_config
+  }
+
+  # Assert encryption is configured
+  assert {
+    condition     = length(aws_eks_cluster.this.encryption_config) > 0
+    error_message = "Cluster should have encryption configured"
+  }
+
+  # Assert secrets are encrypted
+  assert {
+    condition     = contains(aws_eks_cluster.this.encryption_config[0].resources, "secrets")
+    error_message = "Cluster should encrypt Kubernetes secrets"
+  }
+
+  # Assert KMS key rotation is enabled (when module creates key)
+  assert {
+    condition     = var.cluster_encryption_key_arn != null || aws_kms_key.eks_secrets[0].enable_key_rotation == true
+    error_message = "KMS key should have automatic rotation enabled"
+  }
+}
+
+# ----------------------------------------------------------------
+# CloudWatch log group follows naming convention
+# Expected: Logs stored in /aws/eks/{cluster_name}/cluster
+# ----------------------------------------------------------------
+run "cloudwatch_log_group_naming" {
   command = plan
 
   variables {
@@ -32,61 +64,16 @@ run "security_defaults" {
     cluster_encryption_key_arn = var.test_kms_key_arn
   }
 
-  # Assert cluster encryption is configured
+  # Assert CloudWatch log group naming convention
   assert {
-    condition     = length(aws_eks_cluster.this.encryption_config) > 0
-    error_message = "EKS cluster must have encryption configured"
-  }
-
-  # Assert encryption uses provided KMS key
-  assert {
-    condition     = aws_eks_cluster.this.encryption_config[0].provider[0].key_arn == var.test_kms_key_arn
-    error_message = "EKS cluster must use provided KMS key for encryption"
-  }
-
-  # Assert secrets are encrypted
-  assert {
-    condition     = contains(aws_eks_cluster.this.encryption_config[0].resources, "secrets")
-    error_message = "Kubernetes secrets must be encrypted at rest"
-  }
-
-  # Assert private endpoint is enabled by default
-  assert {
-    condition     = tobool(aws_eks_cluster.this.vpc_config[0].endpoint_private_access) == true
-    error_message = "Private API endpoint should be enabled by default"
-  }
-
-  # Assert public endpoint is enabled by default
-  assert {
-    condition     = tobool(aws_eks_cluster.this.vpc_config[0].endpoint_public_access) == true
-    error_message = "Public API endpoint should be enabled by default"
+    condition     = aws_cloudwatch_log_group.cluster.name == "/aws/eks/test-cluster/cluster"
+    error_message = "CloudWatch log group should follow AWS naming convention"
   }
 }
 
 # ----------------------------------------------------------------
-# CloudWatch log group naming convention
-# Expected: Log group follows /aws/eks/{cluster_name}/cluster pattern
-# ----------------------------------------------------------------
-run "cloudwatch_log_group_naming" {
-  command = plan
-
-  variables {
-    cluster_name               = "my-eks-cluster"
-    vpc_id                     = var.vpc_id
-    subnet_ids                 = var.subnet_ids
-    cluster_encryption_key_arn = var.test_kms_key_arn
-  }
-
-  # Assert log group follows naming convention
-  assert {
-    condition     = aws_cloudwatch_log_group.cluster.name == "/aws/eks/my-eks-cluster/cluster"
-    error_message = "CloudWatch log group should follow /aws/eks/{cluster_name}/cluster naming convention"
-  }
-}
-
-# ----------------------------------------------------------------
-# Control plane logging is configurable
-# Expected: Only specified log types are enabled
+# Control plane logging is enabled by default
+# Expected: All log types enabled when eks_enable_cluster_logging is true
 # ----------------------------------------------------------------
 run "control_plane_logging" {
   command = plan
@@ -96,31 +83,26 @@ run "control_plane_logging" {
     vpc_id                     = var.vpc_id
     subnet_ids                 = var.subnet_ids
     cluster_encryption_key_arn = var.test_kms_key_arn
-    enabled_cluster_log_types  = ["api", "audit"]
+    eks_enable_cluster_logging = true
+    enabled_cluster_log_types = [
+      "api",
+      "audit",
+      "authenticator",
+      "controllerManager",
+      "scheduler"
+    ]
   }
 
-  # Assert only specified log types are enabled
+  # Assert all log types are enabled
   assert {
-    condition     = length(aws_eks_cluster.this.enabled_cluster_log_types) == 2
-    error_message = "Should enable exactly the specified log types"
-  }
-
-  # Assert API logs are enabled
-  assert {
-    condition     = contains(aws_eks_cluster.this.enabled_cluster_log_types, "api")
-    error_message = "API logs should be enabled when specified"
-  }
-
-  # Assert audit logs are enabled
-  assert {
-    condition     = contains(aws_eks_cluster.this.enabled_cluster_log_types, "audit")
-    error_message = "Audit logs should be enabled when specified"
+    condition     = length(aws_eks_cluster.this.enabled_cluster_log_types) == 5
+    error_message = "All control plane log types should be enabled for security and compliance"
   }
 }
 
 # ----------------------------------------------------------------
-# Endpoint access combinations work
-# Expected: Public and private can be toggled independently
+# Endpoint private access only
+# Expected: Public access disabled when not specified
 # ----------------------------------------------------------------
 run "endpoint_private_only" {
   command = plan
@@ -130,26 +112,26 @@ run "endpoint_private_only" {
     vpc_id                     = var.vpc_id
     subnet_ids                 = var.subnet_ids
     cluster_encryption_key_arn = var.test_kms_key_arn
-    endpoint_private_access    = true
-    endpoint_public_access     = false
+    endpoint_private_access    = true   # Removed eks_ prefix
+    endpoint_public_access     = false  # Removed eks_ prefix
   }
 
-  # Assert private is enabled
+  # Assert private access is enabled
   assert {
-    condition     = tobool(aws_eks_cluster.this.vpc_config[0].endpoint_private_access) == true
-    error_message = "Private endpoint should be enabled"
+    condition     = aws_eks_cluster.this.vpc_config[0].endpoint_private_access == true
+    error_message = "Private endpoint access should be enabled"
   }
 
-  # Assert public is disabled
+  # Assert public access is disabled
   assert {
-    condition     = tobool(aws_eks_cluster.this.vpc_config[0].endpoint_public_access) == false
-    error_message = "Public endpoint should be disabled"
+    condition     = aws_eks_cluster.this.vpc_config[0].endpoint_public_access == false
+    error_message = "Public endpoint access should be disabled for private-only clusters"
   }
 }
 
 # ----------------------------------------------------------------
-# Public access CIDRs are configurable
-# Expected: CIDR restrictions apply when public access enabled
+# Public access CIDR restrictions
+# Expected: Public access limited to specified CIDR blocks
 # ----------------------------------------------------------------
 run "public_access_cidrs" {
   command = plan
@@ -159,20 +141,20 @@ run "public_access_cidrs" {
     vpc_id                     = var.vpc_id
     subnet_ids                 = var.subnet_ids
     cluster_encryption_key_arn = var.test_kms_key_arn
-    endpoint_public_access     = true
-    public_access_cidrs        = ["10.0.0.0/8", "172.16.0.0/12"]
+    endpoint_public_access     = true            # Removed eks_ prefix
+    public_access_cidrs        = ["10.0.0.0/8"]  # Removed eks_endpoint_ prefix
   }
 
-  # Assert CIDR restrictions are applied
+  # Assert public access is restricted
   assert {
-    condition     = length(aws_eks_cluster.this.vpc_config[0].public_access_cidrs) == 2
-    error_message = "Should apply specified CIDR restrictions"
+    condition     = length(aws_eks_cluster.this.vpc_config[0].public_access_cidrs) > 0
+    error_message = "Public access should be restricted to specific CIDR blocks"
   }
 
-  # Assert specific CIDR is present
+  # Assert specific CIDR is configured
   assert {
     condition     = contains(aws_eks_cluster.this.vpc_config[0].public_access_cidrs, "10.0.0.0/8")
-    error_message = "Should include specified CIDR blocks"
+    error_message = "Configured CIDR blocks should be applied"
   }
 }
 

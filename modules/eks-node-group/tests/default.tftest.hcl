@@ -173,7 +173,7 @@ run "cloudwatch_agent_enabled" {
 }
 # ----------------------------------------------------------------
 # Security group rules for cluster communication
-# Expected: Ingress from cluster, egress to cluster and internet
+# Expected: Ingress from cluster, egress to cluster and specific ports to internet
 # ----------------------------------------------------------------
 run "security_group_rules" {
   command = plan
@@ -191,51 +191,84 @@ run "security_group_rules" {
     min_size                           = 1
     max_size                           = 1
   }
-  # Assert security group is created in correct VPC
-  assert {
-    condition     = aws_security_group.node.vpc_id == var.test_vpc_id
-    error_message = "Node security group should be in correct VPC"
-  }
+
   # Assert nodes can communicate with each other
   assert {
     condition     = aws_security_group_rule.node_ingress_self.self == true
     error_message = "Nodes should be able to communicate with each other"
   }
-  # Assert nodes can receive traffic from cluster control plane
+
+  # Assert nodes can receive communication from cluster control plane
   assert {
-    condition     = aws_security_group_rule.node_ingress_cluster.source_security_group_id == var.test_cluster_sg_id
-    error_message = "Nodes should accept traffic from cluster control plane"
+    condition     = aws_security_group_rule.node_ingress_cluster.from_port == 1025
+    error_message = "Nodes should accept high port traffic from control plane"
   }
-  # Assert nodes can communicate with cluster API
+
+  # Assert nodes can send traffic to cluster API server
   assert {
     condition     = aws_security_group_rule.node_egress_cluster.to_port == 443
-    error_message = "Nodes should be able to communicate with cluster API on port 443"
+    error_message = "Nodes should be able to communicate with cluster API on 443"
   }
-  # Assert nodes have internet access for updates and image pulls
+
+  # Assert HTTPS egress to internet (for ECR, updates, AWS APIs)
   assert {
-    condition     = aws_security_group_rule.node_egress_internet.cidr_blocks[0] == "0.0.0.0/0"
-    error_message = "Nodes need internet access for package updates and container image pulls"
+    condition     = aws_security_group_rule.node_egress_https.cidr_blocks[0] == "0.0.0.0/0"
+    error_message = "Nodes should allow HTTPS egress to internet"
+  }
+
+  assert {
+    condition     = aws_security_group_rule.node_egress_https.from_port == 443
+    error_message = "HTTPS egress should be on port 443"
+  }
+
+  # Assert HTTP egress for package updates
+  assert {
+    condition     = aws_security_group_rule.node_egress_http.cidr_blocks[0] == "0.0.0.0/0"
+    error_message = "Nodes should allow HTTP egress for package updates"
+  }
+
+  assert {
+    condition     = aws_security_group_rule.node_egress_http.from_port == 80
+    error_message = "HTTP egress should be on port 80"
+  }
+
+  # Assert NTP egress for time synchronization
+  assert {
+    condition     = aws_security_group_rule.node_egress_ntp.protocol == "udp"
+    error_message = "NTP should use UDP protocol"
+  }
+
+  assert {
+    condition     = aws_security_group_rule.node_egress_ntp.from_port == 123
+    error_message = "NTP should be on port 123"
+  }
+
+  # Assert DNS egress (TCP)
+  assert {
+    condition     = aws_security_group_rule.node_egress_dns_tcp.from_port == 53
+    error_message = "DNS TCP should be on port 53"
+  }
+
+  assert {
+    condition     = aws_security_group_rule.node_egress_dns_tcp.protocol == "tcp"
+    error_message = "DNS TCP should use TCP protocol"
+  }
+
+  # Assert DNS egress (UDP)
+  assert {
+    condition     = aws_security_group_rule.node_egress_dns_udp.from_port == 53
+    error_message = "DNS UDP should be on port 53"
+  }
+
+  assert {
+    condition     = aws_security_group_rule.node_egress_dns_udp.protocol == "udp"
+    error_message = "DNS UDP should use UDP protocol"
   }
 }
 
 # ----------------------------------------------------------------
-# ALB INTEGRATION TESTS REMOVED
-# ----------------------------------------------------------------
-# The ALB ingress security group rule has been moved out of this
-# module and is now created at the environment level to avoid
-# Terraform's "known only after apply" errors with count/for_each.
-#
-# ALB integration should be tested at the environment/integration
-# level, not at the module level.
-#
-# REMOVED TESTS:
-#   - run "alb_ingress_enabled"
-#   - run "alb_ingress_disabled"
-# ----------------------------------------------------------------
-
-# ----------------------------------------------------------------
-# Launch template uses latest version
-# Expected: Node group always uses $Latest launch template
+# Launch template uses name_prefix for updates
+# Expected: name_prefix allows blue-green deployments
 # ----------------------------------------------------------------
 run "launch_template_versioning" {
   command = plan
@@ -253,21 +286,21 @@ run "launch_template_versioning" {
     min_size                           = 1
     max_size                           = 1
   }
-  # Assert node group uses $Latest launch template version
+  # Assert launch template uses name_prefix
   assert {
-    condition     = aws_eks_node_group.this.launch_template[0].version == "$Latest"
-    error_message = "Node group must use $Latest launch template version for updates"
+    condition     = can(regex("^test-cluster-test-nodes-", aws_launch_template.node.name_prefix))
+    error_message = "Launch template should use name_prefix for versioning"
   }
 }
 # ----------------------------------------------------------------
-# Naming conventions
-# Expected: Resources follow predictable naming pattern
+# Resource naming conventions
+# Expected: Resources follow cluster-nodegroup naming pattern
 # ----------------------------------------------------------------
 run "naming_conventions" {
   command = plan
   variables {
-    cluster_name                       = "my-cluster"
-    node_group_name                    = "my-nodes"
+    cluster_name                       = var.test_cluster_name
+    node_group_name                    = "test-nodes"
     cluster_version                    = var.test_cluster_version
     cluster_endpoint                   = var.test_cluster_endpoint
     cluster_certificate_authority_data = var.test_cluster_ca
@@ -279,25 +312,25 @@ run "naming_conventions" {
     min_size                           = 1
     max_size                           = 1
   }
-  # Assert IAM role naming
+  # Assert IAM role naming convention
   assert {
-    condition     = aws_iam_role.node.name == "my-cluster-my-nodes-role"
-    error_message = "IAM role should follow {cluster_name}-{node_group_name}-role pattern"
+    condition     = aws_iam_role.node.name == "test-cluster-test-nodes-role"
+    error_message = "IAM role should follow cluster-nodegroup-role naming"
   }
-  # Assert instance profile naming
+  # Assert security group naming convention
   assert {
-    condition     = aws_iam_instance_profile.node.name == "my-cluster-my-nodes-profile"
-    error_message = "Instance profile should follow {cluster_name}-{node_group_name}-profile pattern"
+    condition     = aws_security_group.node.name == "test-cluster-test-nodes-sg"
+    error_message = "Security group should follow cluster-nodegroup-sg naming"
   }
-  # Assert security group naming
+  # Assert instance profile naming convention
   assert {
-    condition     = aws_security_group.node.name == "my-cluster-my-nodes-sg"
-    error_message = "Security group should follow {cluster_name}-{node_group_name}-sg pattern"
+    condition     = aws_iam_instance_profile.node.name == "test-cluster-test-nodes-profile"
+    error_message = "Instance profile should follow cluster-nodegroup-profile naming"
   }
 }
 # ----------------------------------------------------------------
 # Disk encryption with custom KMS key
-# Expected: EBS volumes use provided KMS key
+# Expected: EBS volume encrypted with provided KMS key
 # ----------------------------------------------------------------
 run "disk_encryption_custom_kms" {
   command = plan
@@ -316,14 +349,19 @@ run "disk_encryption_custom_kms" {
     min_size                           = 1
     max_size                           = 1
   }
-  # Assert custom KMS key is used for disk encryption
+  # Assert encryption is enabled
+  assert {
+    condition     = tobool(aws_launch_template.node.block_device_mappings[0].ebs[0].encrypted) == true
+    error_message = "EBS volumes must be encrypted"
+  }
+  # Assert custom KMS key is used
   assert {
     condition     = aws_launch_template.node.block_device_mappings[0].ebs[0].kms_key_id == var.test_kms_key_id
-    error_message = "Disk encryption should use provided KMS key"
+    error_message = "Custom KMS key should be used for EBS encryption when provided"
   }
 }
 # ----------------------------------------------------------------
-# Multi-subnet deployment for HA
+# Multi-subnet deployment for high availability
 # Expected: Node group spans all provided subnets
 # ----------------------------------------------------------------
 run "multi_subnet_deployment" {

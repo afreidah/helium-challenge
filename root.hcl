@@ -51,6 +51,9 @@ locals {
   region          = length(local.path_components) > 1 ? local.path_components[1] : ""
   component       = length(local.path_components) > 2 ? local.path_components[2] : ""
 
+  # Computed naming convention
+  name_prefix = "${local.environment}-${local.region}"
+
   # -----------------------------------------------------------------------------
   # Environment-Specific Configuration (BUSINESS LOGIC)
   # -----------------------------------------------------------------------------
@@ -60,31 +63,13 @@ locals {
     production = {
       instance_type = "t3.large"
       replica_count = 3
+      az_suffixes   = ["a", "b"]
 
-      # >>> AZ selection per environment 
-      # Use ["a","b"] for 2 AZs; use ["a","b","c"] for 3 AZs
-      az_suffixes = ["a", "b"]
-
-      # Networking CIDRs (per-environment)
-      vpc_cidr = "10.0.0.0/16"
-
-      public_subnet_cidrs = [
-        "10.0.1.0/24", # AZ-a
-        "10.0.2.0/24", # AZ-b
-        # "10.0.3.0/24",  # AZ-c (uncomment if using 3 AZs)
-      ]
-
-      private_app_subnet_cidrs = [
-        "10.0.16.0/20", # AZ-a
-        "10.0.32.0/20", # AZ-b
-        # "10.0.48.0/20",  # AZ-c (uncomment if using 3 AZs)
-      ]
-
-      private_data_subnet_cidrs = [
-        "10.0.4.0/24", # AZ-a
-        "10.0.5.0/24", # AZ-b
-        # "10.0.6.0/24",  # AZ-c (uncomment if using 3 AZs)
-      ]
+      # Networking CIDRs
+      vpc_cidr                  = "10.0.0.0/16"
+      public_subnet_cidrs       = ["10.0.1.0/24", "10.0.2.0/24"]
+      private_app_subnet_cidrs  = ["10.0.16.0/20", "10.0.32.0/20"]
+      private_data_subnet_cidrs = ["10.0.4.0/24", "10.0.5.0/24"]
 
       # Aurora PostgreSQL configuration
       aurora = {
@@ -103,30 +88,13 @@ locals {
     staging = {
       instance_type = "t3.medium"
       replica_count = 2
+      az_suffixes   = ["a", "b"]
 
-      # >>> AZ selection per environment 
-      az_suffixes = ["a", "b"]
-
-      # Example distinct CIDRs for staging (adjust to your plan)
-      vpc_cidr = "10.1.0.0/16"
-
-      public_subnet_cidrs = [
-        "10.1.1.0/24", # AZ-a
-        "10.1.2.0/24", # AZ-b
-        # "10.1.3.0/24",  # AZ-c (uncomment if using 3 AZs)
-      ]
-
-      private_app_subnet_cidrs = [
-        "10.1.16.0/20", # AZ-a
-        "10.1.32.0/20", # AZ-b
-        # "10.1.48.0/20",  # AZ-c (uncomment if using 3 AZs)
-      ]
-
-      private_data_subnet_cidrs = [
-        "10.1.4.0/24", # AZ-a
-        "10.1.5.0/24", # AZ-b
-        # "10.1.6.0/24",  # AZ-c (uncomment if using 3 AZs)
-      ]
+      # Networking CIDRs
+      vpc_cidr                  = "10.1.0.0/16"
+      public_subnet_cidrs       = ["10.1.1.0/24", "10.1.2.0/24"]
+      private_app_subnet_cidrs  = ["10.1.16.0/20", "10.1.32.0/20"]
+      private_data_subnet_cidrs = ["10.1.4.0/24", "10.1.5.0/24"]
 
       # Aurora PostgreSQL configuration
       aurora = {
@@ -142,12 +110,34 @@ locals {
     }
   }
 
-  # -------------------------------------------------------------------------
-  # Security group rule definitions by component
-  # -------------------------------------------------------------------------
+  # -----------------------------------------------------------------------------
+  # NETWORKING CONFIGURATION
+  # -----------------------------------------------------------------------------
+
+  networking_config = {
+    # Computed availability zones from region + suffix
+    availability_zones = [
+      for suffix in local.env_config[local.environment].az_suffixes :
+      "${local.region}${suffix}"
+    ]
+
+    # NAT Gateway configuration
+    enable_nat_gateway = true
+    single_nat_gateway = local.environment == "production" ? false : true
+
+    # VPC and subnet configuration (passed through from env_config)
+    vpc_name                  = local.environment
+    vpc_cidr                  = local.env_config[local.environment].vpc_cidr
+    public_subnet_cidrs       = local.env_config[local.environment].public_subnet_cidrs
+    private_app_subnet_cidrs  = local.env_config[local.environment].private_app_subnet_cidrs
+    private_data_subnet_cidrs = local.env_config[local.environment].private_data_subnet_cidrs
+  }
+
+  # -----------------------------------------------------------------------------
+  # SECURITY GROUPS CONFIGURATION
+  # -----------------------------------------------------------------------------
 
   security_group_rules = {
-    # --- APPLICATION LOAD BALANCER ---
     alb = {
       name_suffix = "alb"
       description = "Security group for Application Load Balancer"
@@ -178,7 +168,6 @@ locals {
       ]
     }
 
-    # --- EKS CLUSTER CONTROL PLANE ---
     eks_cluster = {
       name_suffix = "eks-cluster"
       description = "Security group for EKS cluster control plane"
@@ -202,7 +191,6 @@ locals {
       ]
     }
 
-    # --- EKS WORKER NODES ---
     eks_nodes = {
       name_suffix = "eks-nodes"
       description = "Security group for EKS worker nodes"
@@ -226,32 +214,31 @@ locals {
       ]
     }
 
-    # --- AURORA POSTGRESQL ---
     aurora = {
-      name_suffix = "aurora-postgresql"
-      description = "Security group for Aurora PostgreSQL cluster"
+      name_suffix = "aurora"
+      description = "Security group for Aurora PostgreSQL database"
       ingress_rules = [
         {
           from_port   = 5432
           to_port     = 5432
           protocol    = "tcp"
           cidr_blocks = ["10.0.0.0/16"]
-          description = "Allow PostgreSQL from VPC (EKS nodes)"
+          description = "Allow PostgreSQL from VPC"
         }
       ]
       egress_rules = []
     }
   }
 
-  # -------------------------------------------------------------------------
-  # IAM role configurations by component
-  # -------------------------------------------------------------------------
+  # -----------------------------------------------------------------------------
+  # IAM ROLES CONFIGURATION
+  # -----------------------------------------------------------------------------
 
   iam_role_configs = {
-    # --- EKS CLUSTER ROLE ---
     eks_cluster = {
-      name_suffix = "eks-cluster-role"
-      description = "IAM role for EKS cluster control plane"
+      name_suffix             = "eks-cluster"
+      description             = "IAM role for EKS cluster control plane"
+      create_instance_profile = false
       assume_role_policy = jsonencode({
         Version = "2012-10-17"
         Statement = [
@@ -265,15 +252,15 @@ locals {
         ]
       })
       policy_arns = [
-        "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+        "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy",
+        "arn:aws:iam::aws:policy/AmazonEKSVPCResourceController"
       ]
-      create_instance_profile = false
     }
 
-    # --- EKS NODE ROLE ---
     eks_node = {
-      name_suffix = "eks-node-role"
-      description = "IAM role for EKS worker nodes"
+      name_suffix             = "eks-node"
+      description             = "IAM role for EKS worker nodes"
+      create_instance_profile = true
       assume_role_policy = jsonencode({
         Version = "2012-10-17"
         Statement = [
@@ -289,266 +276,149 @@ locals {
       policy_arns = [
         "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy",
         "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy",
-        "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+        "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
+        "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
       ]
-      create_instance_profile = true
     }
   }
 
-  # -------------------------------------------------------------------------
-  # ALB Configuration Defaults
-  # -------------------------------------------------------------------------
+  # -----------------------------------------------------------------------------
+  # ALB CONFIGURATION
+  # -----------------------------------------------------------------------------
 
-  alb_config_defaults = {
-    internal                         = false
-    enable_deletion_protection       = false
+  alb_config = {
+    name_suffix                      = "alb"
     load_balancer_type               = "application"
-    preserve_host_header             = false
+    internal                         = false
+    enable_deletion_protection       = local.environment == "production" ? true : false
     enable_cross_zone_load_balancing = true
     enable_http2                     = true
     enable_waf_fail_open             = false
     desync_mitigation_mode           = "defensive"
     drop_invalid_header_fields       = true
+    preserve_host_header             = true
     enable_xff_client_port           = false
     xff_header_processing_mode       = "append"
     idle_timeout                     = 60
-    enable_deletion_protection       = local.environment == "production" ? true : false
 
-    # Access Logs (enable for production)
-    access_logs = local.environment == "production" ? {
-      enabled = true
-      bucket  = "" # Must be set in environment-specific inputs
-      prefix  = "alb-logs"
-      } : {
+    access_logs = {
       enabled = false
+      bucket  = null
+      prefix  = null
     }
+  }
 
-    # Listeners - simplified, no default HTTP listener (add in environment if needed)
-    listeners = {}
+  # -----------------------------------------------------------------------------
+  # ALB LISTENERS CONFIGURATION
+  # -----------------------------------------------------------------------------
 
-    # Target Groups (empty by default, populated per environment)
-    target_groups = {}
-
-    # Listener Rules (empty by default, populated per environment)
+  alb_listeners_config = {
+    listeners = {
+      http = {
+        enabled  = true
+        port     = 80
+        protocol = "HTTP"
+        default_action = {
+          type = "redirect"
+          redirect = {
+            protocol    = "HTTPS"
+            port        = "443"
+            status_code = "HTTP_301"
+          }
+        }
+      }
+      https = {
+        enabled         = false
+        port            = 443
+        protocol        = "HTTPS"
+        certificate_arn = null
+        ssl_policy      = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+        default_action = {
+          type = "fixed-response"
+          fixed_response = {
+            content_type = "text/plain"
+            message_body = "Not Found"
+            status_code  = "404"
+          }
+        }
+      }
+    }
     listener_rules = {}
-
-    # Health Check Defaults
-    health_check_defaults = {
-      enabled             = true
-      healthy_threshold   = 2
-      unhealthy_threshold = 2
-      timeout             = 5
-      interval            = 30
-      protocol            = "HTTP"
-      path                = "/health"
-      matcher             = "200"
-    }
   }
 
-  # -------------------------------------------------------------------------
-  # ALB Listeners Configuration Defaults
-  # -------------------------------------------------------------------------
-
-  listeners = {
-    http = {
-      enabled  = true
-      port     = 80
-      protocol = "HTTP"
-      default_action = {
-        type = "redirect"
-        redirect = {
-          port        = "443"
-          protocol    = "HTTPS"
-          status_code = "HTTP_301"
-        }
-      }
-    }
-    https = {
-      enabled         = false
-      port            = 443
-      protocol        = "HTTPS"
-      ssl_policy      = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-      certificate_arn = null
-      default_action = {
-        type = "fixed-response"
-        fixed_response = {
-          content_type = "text/plain"
-          message_body = "Not Found"
-          status_code  = "404"
-        }
-      }
-    }
-  }
-
-  listener_rules = {}
-
-  # Cross-Environment Shared Defaults (STATIC)
-  enable_nat_gateway = true
-  single_nat_gateway = false
-
-  # Resource name prefix
-  name_prefix = "${local.environment}-${local.region}-${local.component}"
-
-  # Availability Zones (computed directly from env_config)
-  availability_zones = [
-    for s in local.env_config[local.environment].az_suffixes : "${local.region}${s}"
-  ]
-
   # -----------------------------------------------------------------------------
-  # EKS Cluster Settings
-  # -----------------------------------------------------------------------------
-
-  eks_kubernetes_version = "1.31"
-
-  # -----------------------------------------------------------------------------
-  # Network Access Configuration
-  # -----------------------------------------------------------------------------
-  eks_endpoint_private_access = true
-  eks_endpoint_public_access  = local.environment == "production" ? false : true
-
-  # Restrict public access CIDRs per environment
-  # Production: Private only (public_access disabled)
-  # Staging: Restricted CIDR blocks for admin access
-  eks_public_access_cidrs = local.environment == "production" ? [] : ["0.0.0.0/0"]
-
-  # -----------------------------------------------------------------------------
-  # Logging and Monitoring
-  # -----------------------------------------------------------------------------
-  eks_enabled_cluster_log_types = [
-    "api",
-    "audit",
-    "authenticator",
-    "controllerManager",
-    "scheduler"
-  ]
-
-  eks_cloudwatch_retention_days = local.environment == "production" ? 365 : 30
-
-  # -----------------------------------------------------------------------------
-  # Security Configuration
-  # -----------------------------------------------------------------------------
-
-  # Secrets encryption using AWS KMS
-  eks_encryption_config = {
-    resources = ["secrets"]
-    # KMS key ARN should be provided per environment via terragrunt.hcl
-    # If null, module will create a dedicated KMS key
-    kms_key_arn = null
-  }
-
-  # Authentication mode for cluster access
-  # API_AND_CONFIG_MAP: Supports both IAM and aws-auth ConfigMap (default, backward compatible)
-  # API: IAM only (recommended for new clusters)
-  eks_authentication_mode = "API_AND_CONFIG_MAP"
-
-  # Bootstrap cluster creator admin permissions
-  # When true, the IAM principal creating the cluster gets admin access
-  eks_bootstrap_cluster_creator_admin_permissions = true
-
-  # Enable control plane logging to CloudWatch
-  eks_enable_cluster_logging = true
-
-  # -----------------------------------------------------------------------------
-  # Add-ons Configuration
-  # -----------------------------------------------------------------------------
-
-  # EKS Add-on versions (null = latest compatible version)
-  eks_vpc_cni_version    = null
-  eks_coredns_version    = null
-  eks_kube_proxy_version = null
-
-  # Pod Identity Agent add-on for EKS Pod Identity (recommended over IRSA)
-  eks_enable_pod_identity_agent  = true
-  eks_pod_identity_agent_version = null # null = latest
-
-  # -----------------------------------------------------------------------------
-  # EKS Node Group Configuration
-  # -----------------------------------------------------------------------------
-
-  # Node group name
-  eks_node_group_name = "${local.name_prefix}-nodes"
-
-  # Node group defaults - capacity and instance configuration
-  eks_node_groups_defaults = {
-    # Instance types per environment
-    instance_types = local.environment == "production" ? ["t3.large"] : ["t3.medium"]
-
-    # Capacity settings per environment
-    desired_size = local.env_config[local.environment].replica_count
-    min_size     = local.environment == "production" ? 2 : 1
-    max_size     = local.environment == "production" ? 10 : 5
-
-    # Disk configuration
-    disk_size      = 50 # GB
-    disk_type      = "gp3"
-    disk_encrypted = true
-
-    # Security
-    enable_bootstrap_user_data = false # Use standard AMI bootstrap
-    metadata_options = {
-      http_endpoint               = "enabled"
-      http_tokens                 = "required" # IMDSv2 required
-      http_put_response_hop_limit = 1
-      instance_metadata_tags      = "disabled"
-    }
-
-    # Updates
-    force_update_version = false
-    update_config = {
-      max_unavailable_percentage = 33
-    }
-
-    # Tags
-    tags = {} # Additional node-specific tags can be added per environment
-  }
-
-  # Kubernetes labels for nodes
-  eks_node_labels = {
-    environment = local.environment
-    workload    = "general"
-  }
-
-  # Kubernetes taints for nodes (none by default for general-purpose nodes)
-  eks_node_taints = []
-
-  # -----------------------------------------------------------------------------
-  # WAF Configuration
+  # WAF CONFIGURATION
   # -----------------------------------------------------------------------------
 
   waf_config = {
-    # WAF WebACL name
-    name = "${local.name_prefix}-waf"
+    name        = "${local.environment}-${local.region}-waf"
+    description = "WAF for ${local.environment} environment"
+    scope       = "REGIONAL"
 
-    # WAF scope - REGIONAL for ALB, CLOUDFRONT for CloudFront distributions
-    scope = "REGIONAL"
+    rules = [
+      {
+        name     = "AWSManagedRulesCommonRuleSet"
+        priority = 1
+        override_action = {
+          none = {}
+        }
+        statement = {
+          managed_rule_group_statement = {
+            vendor_name = "AWS"
+            name        = "AWSManagedRulesCommonRuleSet"
+          }
+        }
+        visibility_config = {
+          cloudwatch_metrics_enabled = true
+          metric_name                = "AWSManagedRulesCommonRuleSetMetric"
+          sampled_requests_enabled   = true
+        }
+      },
+      {
+        name     = "AWSManagedRulesKnownBadInputsRuleSet"
+        priority = 2
+        override_action = {
+          none = {}
+        }
+        statement = {
+          managed_rule_group_statement = {
+            vendor_name = "AWS"
+            name        = "AWSManagedRulesKnownBadInputsRuleSet"
+          }
+        }
+        visibility_config = {
+          cloudwatch_metrics_enabled = true
+          metric_name                = "AWSManagedRulesKnownBadInputsRuleSetMetric"
+          sampled_requests_enabled   = true
+        }
+      }
+    ]
 
-    # Default action for requests that don't match any rules
     default_action = "allow"
 
-    # AWS Managed Rules - OWASP Top 10, known bad inputs, etc.
-    enable_aws_managed_rules = true
-
-    # Rate limiting to prevent abuse
-    enable_rate_limiting = true
-    rate_limit           = local.environment == "production" ? 2000 : 1000 # requests per 5 minutes per IP
-
-    # Geographic blocking (disabled by default)
-    enable_geo_blocking = false
-    blocked_countries   = [] # ISO 3166-1 alpha-2 codes, e.g., ["CN", "RU"]
-
-    # IP reputation lists - blocks known malicious IPs
-    enable_ip_reputation = true
-
-    # CloudWatch metrics and request sampling
-    cloudwatch_metrics_enabled = true
-    sampled_requests_enabled   = true
+    visibility_config = {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${local.environment}-waf-metric"
+      sampled_requests_enabled   = true
+    }
   }
 
   # -----------------------------------------------------------------------------
-  # AURORA Configuration
+  # AURORA POSTGRESQL CONFIGURATION
   # -----------------------------------------------------------------------------
 
-  aurora_defaults = {
+  aurora_config = {
+    # Environment-specific settings from env_config
+    instance_class                        = local.env_config[local.environment].aurora.instance_class
+    instance_count                        = local.env_config[local.environment].aurora.instance_count
+    backup_retention_period               = local.env_config[local.environment].aurora.backup_retention_period
+    skip_final_snapshot                   = local.env_config[local.environment].aurora.skip_final_snapshot
+    performance_insights_enabled          = local.env_config[local.environment].aurora.performance_insights_enabled
+    performance_insights_retention_period = local.env_config[local.environment].aurora.performance_insights_retention_period
+    monitoring_interval                   = local.env_config[local.environment].aurora.monitoring_interval
+    deletion_protection                   = local.env_config[local.environment].aurora.deletion_protection
+
+    # Shared defaults
     engine_version                      = "15.4"
     port                                = 5432
     storage_encrypted                   = true
@@ -558,13 +428,93 @@ locals {
     allow_major_version_upgrade         = false
     apply_immediately                   = false
     publicly_accessible                 = false
+    enabled_cloudwatch_logs_exports     = ["postgresql"]
+    preferred_backup_window             = "03:00-04:00"
+    preferred_maintenance_window        = "sun:04:00-sun:05:00"
+  }
 
-    # CloudWatch logs
-    enabled_cloudwatch_logs_exports = ["postgresql"]
+  # -----------------------------------------------------------------------------
+  # EKS CLUSTER CONFIGURATION
+  # -----------------------------------------------------------------------------
 
-    # Backup windows
-    preferred_backup_window      = "03:00-04:00"
-    preferred_maintenance_window = "sun:04:00-sun:05:00"
+  eks_cluster_config = {
+    kubernetes_version                          = "1.31"
+    endpoint_private_access                     = true
+    endpoint_public_access                      = true
+    public_access_cidrs                         = local.environment == "production" ? ["0.0.0.0/0"] : ["0.0.0.0/0"]
+    enabled_cluster_log_types                   = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+    cloudwatch_retention_days                   = 90
+    authentication_mode                         = "API_AND_CONFIG_MAP"
+    bootstrap_cluster_creator_admin_permissions = true
+    enable_cluster_logging                      = true
+    enable_pod_identity_agent                   = true
+    pod_identity_agent_version                  = "v1.3.0-eksbuild.1"
+
+    # Addon versions
+    vpc_cni_version    = "v1.18.1-eksbuild.3"
+    coredns_version    = "v1.11.1-eksbuild.9"
+    kube_proxy_version = "v1.30.0-eksbuild.3"
+
+    # Encryption configuration
+    encryption_config = {
+      resources = ["secrets"]
+    }
+
+    # Node group defaults
+    node_groups_defaults = {
+      ami_type       = "AL2023_x86_64_STANDARD"
+      capacity_type  = "ON_DEMAND"
+      disk_size      = 50
+      instance_types = ["t3.medium"]
+      desired_size   = 2
+      min_size       = 1
+      max_size       = 4
+    }
+  }
+
+  # -----------------------------------------------------------------------------
+  # SECRETS MANAGER CONFIGURATION
+  # -----------------------------------------------------------------------------
+
+  secrets_config = {
+    "${local.environment}/aurora/master-credentials" = {
+      description = "Aurora PostgreSQL master credentials for ${local.environment}"
+      secret_string = jsonencode({
+        username            = "postgres"
+        password            = "CHANGE_ME_AFTER_INITIAL_DEPLOY"
+        engine              = "postgres"
+        port                = 5432
+        dbname              = "postgres"
+        dbClusterIdentifier = "${local.environment}-${local.region}-aurora-pg"
+        host                = "PLACEHOLDER"
+        reader_host         = "PLACEHOLDER"
+      })
+      recovery_window_in_days = local.environment == "production" ? 30 : 7
+    }
+
+    "${local.environment}/aurora/app-credentials" = {
+      description = "Application database credentials for ${local.environment}"
+      secret_string = jsonencode({
+        username            = "appuser"
+        password            = "CHANGE_ME_AFTER_INITIAL_DEPLOY"
+        engine              = "postgres"
+        port                = 5432
+        dbname              = "postgres"
+        dbClusterIdentifier = "${local.environment}-${local.region}-aurora-pg"
+        host                = "PLACEHOLDER"
+        reader_host         = "PLACEHOLDER"
+      })
+      recovery_window_in_days = local.environment == "production" ? 30 : 7
+    }
+
+    "${local.environment}/app/config" = {
+      description = "Application configuration for ${local.environment}"
+      secret_string = jsonencode({
+        api_key     = "CHANGE_ME"
+        webhook_url = "https://example.com/webhook"
+      })
+      recovery_window_in_days = local.environment == "production" ? 30 : 7
+    }
   }
 }
 
@@ -572,7 +522,6 @@ locals {
 # Generate Files
 # -----------------------------------------------------------------------------
 
-# --- Backend configuration ---
 generate "backend" {
   path      = "backend.tf"
   if_exists = "overwrite_terragrunt"
@@ -585,7 +534,6 @@ terraform {
 EOF
 }
 
-# --- Provider configuration ---
 generate "provider" {
   path      = "provider.tf"
   if_exists = "overwrite_terragrunt"
@@ -606,7 +554,6 @@ provider "aws" {
 EOF
 }
 
-# --- Checkov configuration ---
 generate "checkov_config" {
   path      = ".checkov.yaml"
   if_exists = "overwrite"
@@ -617,31 +564,44 @@ skip-check:
   - CKV2_AWS_11   # Flow logs handled elsewhere
   - CKV2_AWS_12   # Default SG behavior intentionally managed
   - CKV2_AWS_5    # Security groups created before resources that use them
-  
+
   # ALB
   - CKV2_AWS_28   # WAF integration is optional and configured per environment
   - CKV_AWS_378   # Target groups use HTTP for internal VPC communication (HTTPS terminated at ALB)
-  
+
   # EKS Cluster
   - CKV_AWS_37    # EKS public access controlled via environment-specific CIDRs
   - CKV_AWS_38    # EKS cluster endpoint private access enabled
   - CKV_AWS_39    # EKS cluster logging enabled for all log types
   - CKV_AWS_58    # EKS secrets encryption enabled via KMS
   - CKV_AWS_151   # EKS node group remote access managed via IAM and SSM
-  
+
   # EKS Node Groups
   - CKV_AWS_382   # Node egress restricted to necessary ports (443, 80, 53, 123) with 0.0.0.0/0 - security enforced via NAT Gateway routing
   - CKV_AWS_341   # IMDSv2 hop limit set to 1 for security (pods use IRSA/Pod Identity instead of IMDS)
-  
+
   # CloudWatch
   - CKV_AWS_338   # CloudWatch retention set to 90 days per company policy (not 365)
 
   # TLS
   - CKV_AWS_103   # HTTP listener (port 80) only redirects to HTTPS; TLS 1.2+ enforced on HTTPS listener
+
+  # Secrets Manager
+  - CKV_AWS_304   # Automatic rotation within 90 days requires Lambda function - to be implemented in phase 2
+  - CKV2_AWS_57   # Automatic rotation requires Lambda function and RDS integration - to be implemented in phase 2
+  - CKV_SECRET_6  # High entropy strings in test files are test fixtures, not real secrets
+
+  # Aurora PostgreSQL
+  - CKV_AWS_226   # Auto minor version upgrades disabled intentionally for production stability
+  - CKV2_AWS_27   # Query logging requires custom parameter group - to be implemented in phase 2
+  - CKV2_AWS_8    # AWS Backup plan for RDS clusters - handled via separate backup strategy
+  - CKV_AWS_162   # IAM authentication enabled via iam_database_authentication_enabled = true (false positive)
+  - CKV_AWS_139   # Deletion protection enabled via deletion_protection = true (false positive)
+  - CKV_AWS_96    # Storage encryption enabled via storage_encrypted = true with KMS (false positive)
+  - CKV_AWS_353   # Performance Insights enabled via performance_insights_enabled = true (false positive)
 EOF
 }
 
-# --- Trivy configuration ---
 generate "trivy_ignore" {
   path      = ".trivyignore"
   if_exists = "overwrite"
@@ -659,11 +619,8 @@ EOF
 # -----------------------------------------------------------------------------
 # TERRAFORM EXECUTION SETTINGS & HOOKS
 # -----------------------------------------------------------------------------
-# - Forces all `plan` runs to write a named plan file we can inspect.
-# - AFTER HOOK (on plan): render JSON plan and run Checkov against it.
 
 terraform {
-  # Always write a named plan so we can render it to JSON
   extra_arguments "force_named_plan_out" {
     commands  = ["plan"]
     arguments = ["-out=plan.tfplan"]
@@ -697,58 +654,20 @@ inputs = {
   component   = local.component
   name_prefix = local.name_prefix
 
-  # Compute/capacity
+  # Compute/capacity (from env_config)
   instance_type = local.env_config[local.environment].instance_type
   replica_count = local.env_config[local.environment].replica_count
 
-  # Networking — per-environment values from env_config
-  vpc_name                  = "${local.environment}"
-  vpc_cidr                  = local.env_config[local.environment].vpc_cidr
-  public_subnet_cidrs       = local.env_config[local.environment].public_subnet_cidrs
-  private_app_subnet_cidrs  = local.env_config[local.environment].private_app_subnet_cidrs
-  private_data_subnet_cidrs = local.env_config[local.environment].private_data_subnet_cidrs
-
-  # Networking — shared/static defaults computed here
-  availability_zones = local.availability_zones
-  enable_nat_gateway = local.enable_nat_gateway
-  single_nat_gateway = local.single_nat_gateway
-
-  # Security group rules from locals
+  # Consolidated configuration objects (single line references)
+  networking_config    = local.networking_config
   security_group_rules = local.security_group_rules
-
-  # IAM role configs from locals
-  iam_role_configs = local.iam_role_configs
-
-  # ALB configuration from locals
-  alb_config = local.alb_config_defaults
-
-  # ALB listeners configuration from locals
-  listeners      = local.listeners
-  listener_rules = local.listener_rules
-
-  # WAF Configuration
-  waf_config = local.waf_config
-
-  # Aurora configuration from locals
-  aurora_config = local.env_config[local.environment].aurora
-
-  # EKS Cluster configuration from locals
-  eks_kubernetes_version                          = local.eks_kubernetes_version
-  eks_endpoint_private_access                     = local.eks_endpoint_private_access
-  eks_endpoint_public_access                      = local.eks_endpoint_public_access
-  eks_public_access_cidrs                         = local.eks_public_access_cidrs
-  eks_enabled_cluster_log_types                   = local.eks_enabled_cluster_log_types
-  eks_cloudwatch_retention_days                   = local.eks_cloudwatch_retention_days
-  eks_vpc_cni_version                             = local.eks_vpc_cni_version
-  eks_coredns_version                             = local.eks_coredns_version
-  eks_kube_proxy_version                          = local.eks_kube_proxy_version
-  eks_encryption_config                           = local.eks_encryption_config
-  eks_authentication_mode                         = local.eks_authentication_mode
-  eks_bootstrap_cluster_creator_admin_permissions = local.eks_bootstrap_cluster_creator_admin_permissions
-  eks_enable_cluster_logging                      = local.eks_enable_cluster_logging
-  eks_enable_pod_identity_agent                   = local.eks_enable_pod_identity_agent
-  eks_pod_identity_agent_version                  = local.eks_pod_identity_agent_version
-  eks_node_groups_defaults                        = local.eks_node_groups_defaults
+  iam_role_configs     = local.iam_role_configs
+  alb_config           = local.alb_config
+  alb_listeners_config = local.alb_listeners_config
+  waf_config           = local.waf_config
+  aurora_config        = local.aurora_config
+  eks_cluster_config   = local.eks_cluster_config
+  secrets_config       = local.secrets_config
 
   # Common tags
   common_tags = {

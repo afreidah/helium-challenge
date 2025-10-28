@@ -46,13 +46,14 @@ dependency "aurora" {
 }
 
 # -----------------------------------------------------------------------------
-# INPUTS
+# Inputs
 # -----------------------------------------------------------------------------
 
 inputs = {
   # Build secrets map with real Aurora values injected via Terragrunt
+  # All secrets configuration comes from root.hcl secrets_config
   secrets = {
-    for key, config in local.root.locals.secrets_config :
+    for key, config in local.root.inputs.secrets_config :
     key => merge(
       config,
       # Inject KMS key into all secrets
@@ -78,9 +79,9 @@ inputs = {
 
   # Create IAM read policy for EKS pods
   create_read_policy = true
-  policy_name_prefix = "${local.root.locals.environment}-app"
+  policy_name_prefix = "${local.root.inputs.environment}-app"
   kms_key_arn        = dependency.kms.outputs.key_arn
 
-  # Tags from root configuration
-  tags = local.root.inputs.common_tags
+  # Core identity from root (inherited automatically via root.hcl inputs)
+  # environment, region, component, common_tags
 }

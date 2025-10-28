@@ -236,8 +236,9 @@ locals {
 
   iam_role_configs = {
     eks_cluster = {
-      role_name   = "${local.environment}-eks-cluster-role"
-      description = "IAM role for EKS cluster control plane"
+      name_suffix             = "eks-cluster"
+      description             = "IAM role for EKS cluster control plane"
+      create_instance_profile = false
       assume_role_policy = jsonencode({
         Version = "2012-10-17"
         Statement = [
@@ -250,16 +251,16 @@ locals {
           }
         ]
       })
-      managed_policy_arns = [
+      policy_arns = [
         "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy",
         "arn:aws:iam::aws:policy/AmazonEKSVPCResourceController"
       ]
-      inline_policies = {}
     }
 
     eks_node = {
-      role_name   = "${local.environment}-eks-node-role"
-      description = "IAM role for EKS worker nodes"
+      name_suffix             = "eks-node"
+      description             = "IAM role for EKS worker nodes"
+      create_instance_profile = true
       assume_role_policy = jsonencode({
         Version = "2012-10-17"
         Statement = [
@@ -272,13 +273,12 @@ locals {
           }
         ]
       })
-      managed_policy_arns = [
+      policy_arns = [
         "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy",
         "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy",
         "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
         "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
       ]
-      inline_policies = {}
     }
   }
 
@@ -287,14 +287,19 @@ locals {
   # -----------------------------------------------------------------------------
 
   alb_config = {
-    name                             = "${local.environment}-${local.region}-alb"
-    internal                         = false
+    name_suffix                      = "alb"
     load_balancer_type               = "application"
+    internal                         = false
     enable_deletion_protection       = local.environment == "production" ? true : false
-    enable_http2                     = true
     enable_cross_zone_load_balancing = true
-    idle_timeout                     = 60
+    enable_http2                     = true
+    enable_waf_fail_open             = false
+    desync_mitigation_mode           = "defensive"
     drop_invalid_header_fields       = true
+    preserve_host_header             = true
+    enable_xff_client_port           = false
+    xff_header_processing_mode       = "append"
+    idle_timeout                     = 60
 
     access_logs = {
       enabled = false
@@ -310,6 +315,7 @@ locals {
   alb_listeners_config = {
     listeners = {
       http = {
+        enabled  = true
         port     = 80
         protocol = "HTTP"
         default_action = {
@@ -322,9 +328,10 @@ locals {
         }
       }
       https = {
+        enabled         = false
         port            = 443
         protocol        = "HTTPS"
-        certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/PLACEHOLDER"
+        certificate_arn = null
         ssl_policy      = "ELBSecurityPolicy-TLS13-1-2-2021-06"
         default_action = {
           type = "fixed-response"
@@ -387,9 +394,7 @@ locals {
       }
     ]
 
-    default_action = {
-      allow = {}
-    }
+    default_action = "allow"
 
     visibility_config = {
       cloudwatch_metrics_enabled = true
@@ -654,15 +659,15 @@ inputs = {
   replica_count = local.env_config[local.environment].replica_count
 
   # Consolidated configuration objects (single line references)
-  networking_config        = local.networking_config
-  security_group_rules     = local.security_group_rules
-  iam_role_configs         = local.iam_role_configs
-  alb_config               = local.alb_config
-  alb_listeners_config     = local.alb_listeners_config
-  waf_config               = local.waf_config
-  aurora_config            = local.aurora_config
-  eks_cluster_config       = local.eks_cluster_config
-  secrets_config           = local.secrets_config
+  networking_config    = local.networking_config
+  security_group_rules = local.security_group_rules
+  iam_role_configs     = local.iam_role_configs
+  alb_config           = local.alb_config
+  alb_listeners_config = local.alb_listeners_config
+  waf_config           = local.waf_config
+  aurora_config        = local.aurora_config
+  eks_cluster_config   = local.eks_cluster_config
+  secrets_config       = local.secrets_config
 
   # Common tags
   common_tags = {

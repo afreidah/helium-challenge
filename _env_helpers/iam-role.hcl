@@ -22,11 +22,10 @@ locals {
 # -----------------------------------------------------------------------------
 
 inputs = {
-  environment = local.root.inputs.environment
-  region      = local.root.inputs.region
+  # Role configuration from root.hcl iam_role_configs
+  # This will be overridden by the environment-level terragrunt.hcl
+  # Example: role_config = local.root.inputs.iam_role_configs.eks_cluster
 
-  # This will be overridden by the environment-level inputs merge
-  role_config = {}
-
-  tags = local.root.inputs.common_tags
+  # Core identity from root (inherited automatically via root.hcl inputs)
+  # environment, region, component, common_tags
 }

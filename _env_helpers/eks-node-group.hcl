@@ -18,34 +18,35 @@
 #   }
 #
 # Configuration:
-#   - Adds node group specific configuration
-#   - All node group settings come from root.hcl with prod/staging switches
+#   - All node group settings come from root.hcl eks_cluster_config.node_groups_defaults
 #
 # Directory Structure:
 #   <environment>/<region>/eks-node-group/terragrunt.hcl
 #   Example: production/us-east-1/eks-node-group/terragrunt.hcl
 # -----------------------------------------------------------------------------
 
-# -----------------------------------------------------------------------------
-# TERRAFORM SOURCE
-# -----------------------------------------------------------------------------
-
 terraform {
-  source = "${get_repo_root()}/modules//eks-node-group"
+  source = "${get_repo_root()}/modules/eks-node-group"
 }
 
 # -----------------------------------------------------------------------------
-# DEPENDENCIES
+# Locals
 # -----------------------------------------------------------------------------
 
-# Node group depends on cluster and general-networking being created first
+locals {
+  root = read_terragrunt_config(find_in_parent_folders("root.hcl"))
+}
+
+# -----------------------------------------------------------------------------
+# Dependencies
+# -----------------------------------------------------------------------------
+
 dependency "general_networking" {
   config_path = "../general-networking"
 
   mock_outputs = {
-    vpc_id                  = "vpc-12345678"
-    private_app_subnet_ids  = ["subnet-12345678", "subnet-87654321"]
-    private_data_subnet_ids = ["subnet-13243546", "subnet-67584930"]
+    vpc_id                 = "vpc-12345678"
+    private_app_subnet_ids = ["subnet-12345678", "subnet-87654321"]
   }
   mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
   mock_outputs_merge_strategy_with_state  = "shallow"
@@ -67,20 +68,12 @@ dependency "eks_cluster" {
 }
 
 # -----------------------------------------------------------------------------
-# LOCALS
-# -----------------------------------------------------------------------------
-
-locals {
-  root_config = read_terragrunt_config(find_in_parent_folders("root.hcl"))
-}
-
-# -----------------------------------------------------------------------------
-# INPUTS
+# Inputs
 # -----------------------------------------------------------------------------
 
 inputs = {
   # Node group identification
-  node_group_name = "${local.root_config.locals.environment}-${local.root_config.locals.region}-eks-nodes"
+  node_group_name = "${local.root.inputs.environment}-${local.root.inputs.region}-eks-nodes"
 
   # Cluster identification and connection
   cluster_name                       = dependency.eks_cluster.outputs.cluster_name
@@ -90,18 +83,18 @@ inputs = {
   cluster_security_group_id          = dependency.eks_cluster.outputs.cluster_security_group_id
 
   # Networking
-  vpc_id     = dependency["general_networking"].outputs.vpc_id
-  subnet_ids = dependency["general_networking"].outputs.private_app_subnet_ids
+  vpc_id     = dependency.general_networking.outputs.vpc_id
+  subnet_ids = dependency.general_networking.outputs.private_app_subnet_ids
 
-  # Node group defaults from root.hcl (consolidated config object)
-  ami_type       = local.root_config.inputs.eks_cluster_config.node_groups_defaults.ami_type
-  capacity_type  = local.root_config.inputs.eks_cluster_config.node_groups_defaults.capacity_type
-  disk_size      = local.root_config.inputs.eks_cluster_config.node_groups_defaults.disk_size
-  instance_types = local.root_config.inputs.eks_cluster_config.node_groups_defaults.instance_types
-  desired_size   = local.root_config.inputs.eks_cluster_config.node_groups_defaults.desired_size
-  min_size       = local.root_config.inputs.eks_cluster_config.node_groups_defaults.min_size
-  max_size       = local.root_config.inputs.eks_cluster_config.node_groups_defaults.max_size
+  # Node group configuration from root.hcl eks_cluster_config.node_groups_defaults
+  ami_type       = local.root.inputs.eks_cluster_config.node_groups_defaults.ami_type
+  capacity_type  = local.root.inputs.eks_cluster_config.node_groups_defaults.capacity_type
+  disk_size      = local.root.inputs.eks_cluster_config.node_groups_defaults.disk_size
+  instance_types = local.root.inputs.eks_cluster_config.node_groups_defaults.instance_types
+  desired_size   = local.root.inputs.eks_cluster_config.node_groups_defaults.desired_size
+  min_size       = local.root.inputs.eks_cluster_config.node_groups_defaults.min_size
+  max_size       = local.root.inputs.eks_cluster_config.node_groups_defaults.max_size
 
-  # Tags from root (inherited automatically via root.hcl inputs)
+  # Core identity from root (inherited automatically via root.hcl inputs)
   # environment, region, component, common_tags
 }

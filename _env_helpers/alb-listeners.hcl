@@ -49,9 +49,9 @@ dependency "alb_target_groups" {
 inputs = {
   alb_arn = dependency.alb.outputs.alb_arn
 
-  # Listeners and listener_rules from root.hcl
-  listeners      = local.root.inputs.listeners
-  listener_rules = lookup(local.root.inputs, "listener_rules", {})
+  # Listeners and listener_rules from root.hcl alb_listeners_config
+  listeners      = local.root.inputs.alb_listeners_config.listeners
+  listener_rules = local.root.inputs.alb_listeners_config.listener_rules
 
   # Core identity from root (inherited automatically via root.hcl inputs)
   # environment, region, component, common_tags

@@ -22,7 +22,7 @@ terraform {
 }
 
 # -----------------------------------------------------------------------------
-# Local Environment
+# Locals
 # -----------------------------------------------------------------------------
 
 locals {
@@ -30,31 +30,20 @@ locals {
 }
 
 # -----------------------------------------------------------------------------
-# MODULE INPUTS
+# Inputs
 # -----------------------------------------------------------------------------
 
 inputs = {
-  # VPC Configuration (provided by root.hcl per-environment)
-  vpc_name = local.root.inputs.vpc_name
-  vpc_cidr = local.root.inputs.vpc_cidr
+  # All networking configuration comes from root.hcl networking_config
+  vpc_name                  = local.root.inputs.networking_config.vpc_name
+  vpc_cidr                  = local.root.inputs.networking_config.vpc_cidr
+  availability_zones        = local.root.inputs.networking_config.availability_zones
+  public_subnet_cidrs       = local.root.inputs.networking_config.public_subnet_cidrs
+  private_app_subnet_cidrs  = local.root.inputs.networking_config.private_app_subnet_cidrs
+  private_data_subnet_cidrs = local.root.inputs.networking_config.private_data_subnet_cidrs
+  enable_nat_gateway        = local.root.inputs.networking_config.enable_nat_gateway
+  single_nat_gateway        = local.root.inputs.networking_config.single_nat_gateway
 
-  # Availability Zones (constructed in root.hcl from region)
-  availability_zones = local.root.inputs.availability_zones
-
-  # Public Subnets - /24 per AZ (256 IPs each)
-  # For NAT Gateways, ALBs, bastion hosts
-  public_subnet_cidrs = local.root.inputs.public_subnet_cidrs
-
-  # Private Application Subnets - /20 per AZ (4,096 IPs each)
-  # For EKS nodes, EC2 instances, containers, etc
-  private_app_subnet_cidrs = local.root.inputs.private_app_subnet_cidrs
-
-  # Private Data Subnets - /24 per AZ (256 IPs each)
-  # For Aurora PostgreSQL, nd other data stores
-  private_data_subnet_cidrs = local.root.inputs.private_data_subnet_cidrs
-
-  # NAT Gateway Configuration
-  enable_nat_gateway = local.root.inputs.enable_nat_gateway
-  single_nat_gateway = local.root.inputs.single_nat_gateway
+  # Tags from root (inherited automatically via root.hcl inputs)
+  # common_tags
 }
-

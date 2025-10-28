@@ -10,6 +10,14 @@ terraform {
 }
 
 # -----------------------------------------------------------------------------
+# Locals
+# -----------------------------------------------------------------------------
+
+locals {
+  root = read_terragrunt_config(find_in_parent_folders("root.hcl"))
+}
+
+# -----------------------------------------------------------------------------
 # Dependencies
 # -----------------------------------------------------------------------------
 
@@ -28,9 +36,10 @@ dependency "general_networking" {
 inputs = {
   vpc_id = dependency.general_networking.outputs.vpc_id
 
-  # These will all be provided by root.hcl through the include
-  # environment, region, tags, etc. are inherited
+  # Security group rules configuration from root.hcl security_group_rules
+  # This will be overridden by the environment-level terragrunt.hcl
+  # Example: security_group_rules = local.root.inputs.security_group_rules.alb
 
-  # This will be overridden by the environment-level inputs merge
-  security_group_rules = {}
+  # Core identity from root (inherited automatically via root.hcl inputs)
+  # environment, region, component, common_tags
 }

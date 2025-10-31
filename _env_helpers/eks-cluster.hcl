@@ -22,19 +22,19 @@ locals {
 # -----------------------------------------------------------------------------
 
 dependency "general_networking" {
-  config_path  = "../general-networking"
+  config_path = "../general-networking"
   # Remove skip_outputs = true
 
   mock_outputs = {
     vpc_id                 = "vpc-12345678"
-    private_app_subnet_ids = ["subnet-12345678", "subnet-87654321"]  # Fixed name
+    private_app_subnet_ids = ["subnet-12345678", "subnet-87654321"] # Fixed name
   }
   mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
   mock_outputs_merge_strategy_with_state  = "shallow"
 }
 
 dependency "kms" {
-  config_path  = "../kms"
+  config_path = "../kms"
   # Remove skip_outputs = true
 
   mock_outputs = {

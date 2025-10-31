@@ -285,10 +285,10 @@ locals {
       name_suffix             = "external-secrets"
       description             = "IAM role for External Secrets Operator via IRSA"
       create_instance_profile = false
-      
+
       # Placeholder - will be overridden in environment-level terragrunt.hcl
       assume_role_policy = "PLACEHOLDER"
-      
+
       # Inline policy for Secrets Manager access
       inline_policies = {
         secrets_manager_access = jsonencode({
@@ -364,6 +364,7 @@ locals {
           }
         }
       }
+
       https = {
         enabled         = false
         port            = 443
@@ -381,6 +382,31 @@ locals {
       }
     }
     listener_rules = {}
+  }
+
+  # -----------------------------------------------------------------------------
+  # ALB TARGET GROUPS CONFIGURATION
+  # -----------------------------------------------------------------------------
+
+  target_groups_config = {
+    app = {
+      port                 = 8080
+      protocol             = "HTTP"
+      target_type          = "instance"
+      deregistration_delay = 30
+      health_check = {
+        enabled             = true
+        healthy_threshold   = 2
+        interval            = 30
+        matcher             = "200"
+        path                = "/health"
+        port                = "traffic-port"
+        protocol            = "HTTP"
+        timeout             = 5
+        unhealthy_threshold = 2
+      }
+      stickiness = null
+    }
   }
 
   # -----------------------------------------------------------------------------
@@ -701,6 +727,7 @@ inputs = {
   iam_role_configs     = local.iam_role_configs
   alb_config           = local.alb_config
   alb_listeners_config = local.alb_listeners_config
+  target_groups_config = local.target_groups_config
   waf_config           = local.waf_config
   aurora_config        = local.aurora_config
   eks_cluster_config   = local.eks_cluster_config

@@ -1,56 +1,51 @@
-<!-- BEGIN_TF_DOCS -->
-## Requirements
+# WAF Module
 
-| Name | Version |
-|------|---------|
-| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.0 |
-| <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 5.0 |
+## Overview
 
-## Providers
+Creates AWS WAFv2 WebACL with configurable managed rule groups, rate limiting, geographic blocking, and comprehensive logging for application protection against common web exploits and attacks. The WebACL can be scoped for regional resources (ALB/API Gateway) or global CloudFront distributions with flexible rule configuration and observability.
 
-| Name | Version |
-|------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 5.100.0 |
+## What It Does
 
-## Modules
+- **WAF WebACL**: AWS WAFv2 Web Application Firewall with configurable default action (allow or block)
+- **AWS Managed Rules**: Protection against OWASP Top 10 threats, known bad inputs, and malicious IP addresses
+- **Rate Limiting**: Request throttling per source IP address to prevent abuse and flooding
+- **Geographic Blocking**: Country-based traffic filtering using ISO 3166-1 alpha-2 codes
+- **CloudWatch Logging**: Full request logging with sensitive field redaction (authorization, cookie headers)
+- **Visibility Configuration**: CloudWatch metrics and sampled request logging for all rules and the WebACL
 
-No modules.
+## Key Features
 
-## Resources
+- AWS managed rule groups (Core Rule Set, Known Bad Inputs, IP Reputation List)
+- IP reputation lists to block known malicious sources automatically
+- Rate limiting with configurable threshold (100-20M requests per 5 minutes)
+- Geographic blocking supporting up to 250 country codes
+- Regional (ALB/API Gateway) or CloudFront scope support
+- CloudWatch logging with configurable retention (0-3653 days) and KMS encryption
+- Sensitive field redaction from logs (authorization and cookie headers by default)
+- CloudWatch metrics and sampled requests for monitoring and troubleshooting
+- Configurable default action (allow or block)
+- Dynamic rule creation using conditional logic (enable/disable individual protections)
+- Priority-based rule evaluation (managed rules at priority 10-30, rate limit at 40, geo-blocking at 50)
 
-| Name | Type |
-|------|------|
-| [aws_cloudwatch_log_group.waf](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_group) | resource |
-| [aws_wafv2_web_acl.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/wafv2_web_acl) | resource |
-| [aws_wafv2_web_acl_logging_configuration.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/wafv2_web_acl_logging_configuration) | resource |
+## Module Position
 
-## Inputs
+This module provides application-layer protection for public-facing resources:
+```
+Internet → **WAF WebACL** → ALB/CloudFront → Application
+```
 
-| Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
-| <a name="input_blocked_countries"></a> [blocked\_countries](#input\_blocked\_countries) | List of country codes to block using ISO 3166-1 alpha-2 format | `list(string)` | `[]` | no |
-| <a name="input_cloudwatch_metrics_enabled"></a> [cloudwatch\_metrics\_enabled](#input\_cloudwatch\_metrics\_enabled) | Enable CloudWatch metrics for monitoring WAF activity | `bool` | `true` | no |
-| <a name="input_default_action"></a> [default\_action](#input\_default\_action) | Default action for requests that do not match any rules (allow or block) | `string` | `"allow"` | no |
-| <a name="input_enable_aws_managed_rules"></a> [enable\_aws\_managed\_rules](#input\_enable\_aws\_managed\_rules) | Enable AWS managed rule groups for common vulnerabilities and bad inputs | `bool` | `true` | no |
-| <a name="input_enable_geo_blocking"></a> [enable\_geo\_blocking](#input\_enable\_geo\_blocking) | Enable geographic blocking based on country codes | `bool` | `false` | no |
-| <a name="input_enable_ip_reputation"></a> [enable\_ip\_reputation](#input\_enable\_ip\_reputation) | Enable AWS IP reputation lists to block known malicious sources | `bool` | `true` | no |
-| <a name="input_enable_logging"></a> [enable\_logging](#input\_enable\_logging) | Enable WAF logging to CloudWatch | `bool` | `true` | no |
-| <a name="input_enable_rate_limiting"></a> [enable\_rate\_limiting](#input\_enable\_rate\_limiting) | Enable rate limiting to prevent request flooding | `bool` | `true` | no |
-| <a name="input_log_kms_key_id"></a> [log\_kms\_key\_id](#input\_log\_kms\_key\_id) | KMS key ID for encrypting WAF logs | `string` | `null` | no |
-| <a name="input_log_retention_days"></a> [log\_retention\_days](#input\_log\_retention\_days) | Number of days to retain WAF logs | `number` | `90` | no |
-| <a name="input_name"></a> [name](#input\_name) | Name of the WAF WebACL | `string` | n/a | yes |
-| <a name="input_rate_limit"></a> [rate\_limit](#input\_rate\_limit) | Maximum number of requests allowed per 5 minutes from a single IP | `number` | `2000` | no |
-| <a name="input_redacted_fields"></a> [redacted\_fields](#input\_redacted\_fields) | List of header names to redact from logs (e.g., authorization, cookie) | `list(string)` | <pre>[<br/>  "authorization",<br/>  "cookie"<br/>]</pre> | no |
-| <a name="input_sampled_requests_enabled"></a> [sampled\_requests\_enabled](#input\_sampled\_requests\_enabled) | Enable sampling of requests for analysis and troubleshooting | `bool` | `true` | no |
-| <a name="input_scope"></a> [scope](#input\_scope) | Scope of the WAF (REGIONAL for ALB/API Gateway, CLOUDFRONT for CloudFront) | `string` | `"REGIONAL"` | no |
-| <a name="input_tags"></a> [tags](#input\_tags) | Tags to apply to the WAF WebACL | `map(string)` | `{}` | no |
+## Common Use Cases
 
-## Outputs
+- Application Load Balancer protection against OWASP Top 10 vulnerabilities
+- CloudFront distribution security with global threat intelligence
+- Rate limiting to prevent DDoS attacks and API abuse
+- Geographic access restrictions for compliance requirements
+- Bot protection using IP reputation lists
+- Security logging for compliance and incident investigation
 
-| Name | Description |
-|------|-------------|
-| <a name="output_web_acl_arn"></a> [web\_acl\_arn](#output\_web\_acl\_arn) | ARN of the WAF WebACL |
-| <a name="output_web_acl_capacity"></a> [web\_acl\_capacity](#output\_web\_acl\_capacity) | Capacity units used by the WebACL |
-| <a name="output_web_acl_id"></a> [web\_acl\_id](#output\_web\_acl\_id) | ID of the WAF WebACL |
-| <a name="output_web_acl_name"></a> [web\_acl\_name](#output\_web\_acl\_name) | Name of the WAF WebACL |
-<!-- END_TF_DOCS -->
+## Testing & Validation
+
+- **Terraform Tests**: Comprehensive test suite covering baseline defaults (all managed rules enabled, rate limiting at 2000 requests, CloudWatch metrics and sampling enabled), default action block configuration, selective managed rules (disable core rules while keeping IP reputation), disable reputation and rate limiting for minimal protection, geographic blocking with multiple country codes (RU, CN validation), CloudFront scope for global distribution protection, metrics and sampling disabled for minimal observability
+- **Run Tests**: `terraform test` from the module directory  
+- **Variable Validation**: Extensive validation including WAF name format (alphanumeric, hyphens, underscores only) and length (1-128 chars), scope values (REGIONAL or CLOUDFRONT only), default action (allow or block), rate limit range (100-20M requests per 5 minutes), country codes (ISO 3166-1 alpha-2 format, max 250 countries), log retention days (valid CloudWatch retention periods), KMS key ARN format, redacted field names (alphanumeric, hyphens, underscores only, max 100 fields)
+- **Plan-Safe Assertions**: Tests avoid equality checks against computed values (capacity, IDs, ARNs) that are unknown at plan time, focusing on rule presence, visibility settings, and tag propagation

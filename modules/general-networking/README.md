@@ -1,69 +1,54 @@
-<!-- BEGIN_TF_DOCS -->
-## Requirements
+# General Networking (VPC) Module
 
-| Name | Version |
-|------|---------|
-| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.0 |
-| <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 5.0 |
+## Overview
 
-## Providers
+Creates a production-ready AWS Virtual Private Cloud with a three-tier subnet architecture (public, private application, private data) distributed across multiple availability zones for high availability and fault isolation. Implements network segmentation best practices with dedicated NAT Gateways per AZ for the application tier.
 
-| Name | Version |
-|------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 5.100.0 |
+## What It Does
 
-## Modules
+- **VPC**: Virtual network with DNS support enabled for Route53 integration
+- **Internet Gateway**: Public internet connectivity for public subnets
+- **Public Subnets**: Hosts NAT gateways, load balancers, and bastion hosts (one per AZ)
+- **Private App Subnets**: Application tier with dedicated per-AZ NAT Gateways for fault isolation (one per AZ)
+- **Private Data Subnets**: Database tier with shared route table using single NAT Gateway for cost optimization (one per AZ)
+- **NAT Gateways**: Outbound internet access with Elastic IPs (one per AZ by default)
+- **Route Tables**: Public route table with IGW default route, per-AZ app route tables with per-AZ NAT, shared data route table with single NAT
 
-No modules.
+## Key Features
 
-## Resources
+- Three-tier network segmentation (public, private-app, private-data)
+- Multi-AZ deployment with configurable availability zones (default: 3 AZs)
+- Per-AZ NAT Gateways for application tier (isolated failure domains)
+- Shared NAT Gateway for data tier (cost optimization)
+- Public subnets with `map_public_ip_on_launch` for NAT and ALB
+- DNS resolution and DNS hostnames enabled
+- Automatic tagging with tier labels (public, private-app, private-data)
+- Configurable CIDR blocks for all subnet tiers
+- Internet Gateway for public internet access
+- Elastic IPs for static NAT Gateway addressing
 
-| Name | Type |
-|------|------|
-| [aws_eip.nat](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eip) | resource |
-| [aws_internet_gateway.main](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/internet_gateway) | resource |
-| [aws_nat_gateway.main](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/nat_gateway) | resource |
-| [aws_route.private_app_nat](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route) | resource |
-| [aws_route.private_data_nat](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route) | resource |
-| [aws_route.public_internet](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route) | resource |
-| [aws_route_table.private_app](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route_table) | resource |
-| [aws_route_table.private_data](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route_table) | resource |
-| [aws_route_table.public](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route_table) | resource |
-| [aws_route_table_association.private_app](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route_table_association) | resource |
-| [aws_route_table_association.private_data](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route_table_association) | resource |
-| [aws_route_table_association.public](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route_table_association) | resource |
-| [aws_subnet.private_app](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/subnet) | resource |
-| [aws_subnet.private_data](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/subnet) | resource |
-| [aws_subnet.public](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/subnet) | resource |
-| [aws_vpc.main](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc) | resource |
+## Module Position
 
-## Inputs
+This module provides the foundational network layer for all AWS resources:
+```
+**VPC** → Subnets → Security Groups → Applications/Databases
+```
 
-| Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
-| <a name="input_availability_zones"></a> [availability\_zones](#input\_availability\_zones) | List of availability zones | `list(string)` | <pre>[<br/>  "us-east-1a",<br/>  "us-east-1b",<br/>  "us-east-1c"<br/>]</pre> | no |
-| <a name="input_enable_nat_gateway"></a> [enable\_nat\_gateway](#input\_enable\_nat\_gateway) | Enable NAT Gateway for private subnets | `bool` | `true` | no |
-| <a name="input_private_app_subnet_cidrs"></a> [private\_app\_subnet\_cidrs](#input\_private\_app\_subnet\_cidrs) | CIDR blocks for private application tier subnets | `list(string)` | n/a | yes |
-| <a name="input_private_data_subnet_cidrs"></a> [private\_data\_subnet\_cidrs](#input\_private\_data\_subnet\_cidrs) | CIDR blocks for private data tier subnets | `list(string)` | n/a | yes |
-| <a name="input_public_subnet_cidrs"></a> [public\_subnet\_cidrs](#input\_public\_subnet\_cidrs) | CIDR blocks for public subnets | `list(string)` | n/a | yes |
-| <a name="input_single_nat_gateway"></a> [single\_nat\_gateway](#input\_single\_nat\_gateway) | Use a single NAT Gateway instead of one per AZ (cost optimization vs HA) | `bool` | `false` | no |
-| <a name="input_tags"></a> [tags](#input\_tags) | Tags to apply to all resources | `map(string)` | `{}` | no |
-| <a name="input_vpc_cidr"></a> [vpc\_cidr](#input\_vpc\_cidr) | CIDR block for VPC | `string` | n/a | yes |
-| <a name="input_vpc_name"></a> [vpc\_name](#input\_vpc\_name) | Name of the VPC | `string` | n/a | yes |
+## Common Use Cases
 
-## Outputs
+- Multi-tier web applications with public ALBs and private backends
+- EKS cluster deployments with private node subnets
+- RDS databases in isolated data tier subnets
+- Cost-optimized data tier with minimal internet access
+- High-availability applications with per-AZ NAT isolation
+- Microservices architectures with network segmentation
+- Compliance requirements needing private-by-default networking
+- Blue/green deployments with separate VPCs
 
-| Name | Description |
-|------|-------------|
-| <a name="output_availability_zones"></a> [availability\_zones](#output\_availability\_zones) | List of availability zones used |
-| <a name="output_internet_gateway_id"></a> [internet\_gateway\_id](#output\_internet\_gateway\_id) | ID of the Internet Gateway |
-| <a name="output_nat_gateway_ids"></a> [nat\_gateway\_ids](#output\_nat\_gateway\_ids) | List of NAT Gateway IDs |
-| <a name="output_private_app_route_table_ids"></a> [private\_app\_route\_table\_ids](#output\_private\_app\_route\_table\_ids) | List of private app route table IDs |
-| <a name="output_private_app_subnet_ids"></a> [private\_app\_subnet\_ids](#output\_private\_app\_subnet\_ids) | List of private application tier subnet IDs |
-| <a name="output_private_data_route_table_id"></a> [private\_data\_route\_table\_id](#output\_private\_data\_route\_table\_id) | ID of the private data route table |
-| <a name="output_private_data_subnet_ids"></a> [private\_data\_subnet\_ids](#output\_private\_data\_subnet\_ids) | List of private data tier subnet IDs |
-| <a name="output_public_route_table_id"></a> [public\_route\_table\_id](#output\_public\_route\_table\_id) | ID of the public route table |
-| <a name="output_public_subnet_ids"></a> [public\_subnet\_ids](#output\_public\_subnet\_ids) | List of public subnet IDs |
-| <a name="output_vpc_cidr"></a> [vpc\_cidr](#output\_vpc\_cidr) | CIDR block of the VPC |
-| <a name="output_vpc_id"></a> [vpc\_id](#output\_vpc\_id) | ID of the VPC |
-<!-- END_TF_DOCS -->
+## Testing & Validation
+
+- **Terraform Tests**: Comprehensive test suite covering baseline 3-AZ deployment (VPC DNS settings, IGW creation, subnet counts per tier, public IP auto-assignment, per-AZ NAT Gateways and EIPs, route table creation and associations, default routes), tagging and naming conventions (tier tags, Name tags, vpc_name prefixing), outputs validation (subnet ID lists, NAT Gateway IDs, route table IDs, AZ passthrough), NAT Gateway disabled scenario (empty NAT IDs), and routing specifics (IGW routes, per-AZ NAT routes for app tier, shared NAT route for data tier)
+- **Run Tests**: `terraform test` from the module directory
+- **Variable Validation**: Basic type validation for strings, lists, and booleans (allows flexibility for any valid CIDR blocks)
+- **Architectural Decisions**: Per-AZ NAT for app tier provides fault isolation (AZ failure doesn't affect other AZs), shared NAT for data tier minimizes cost (databases rarely need internet), public subnets enable map_public_ip_on_launch for NAT/ALB requirements
+- **Cost Considerations**: NAT Gateways incur hourly charges and data transfer costs (default: 3 NAT Gateways), option to use single NAT Gateway across all AZs via `single_nat_gateway` flag (not recommended for production)

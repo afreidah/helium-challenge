@@ -238,7 +238,7 @@ cost:
 docs: ## Generate README.md documentation for all Terraform modules (parallel)
 	@echo "$(BLUE)Generating module documentation$(NC)"
 	@find $(MODULES_DIR)/*/ -maxdepth 0 -type d | \
-	xargs -P 4 -I {} bash -c 'echo "$(YELLOW)Generating docs for {}$(NC)" && terraform-docs markdown table --output-file README.md --output-mode inject {}'
+	xargs -P 4 -I {} bash -c 'echo "$(YELLOW)Generating docs for {}$(NC)" && terraform-docs markdown table --output-file AUTO_DOC.md --output-mode inject {}'
 	@echo "$(GREEN)✓ Documentation generated for all modules$(NC)"
 
 .PHONY: docs

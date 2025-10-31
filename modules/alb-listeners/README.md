@@ -1,44 +1,43 @@
-<!-- BEGIN_TF_DOCS -->
-## Requirements
+# ALB Listeners Module
 
-No requirements.
+## Overview
 
-## Providers
+Creates and manages Application Load Balancer listeners and routing rules. This module handles traffic routing from the ALB to target groups through HTTP/HTTPS listeners and supports advanced routing patterns.
 
-| Name | Version |
-|------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.18.0 |
+## What It Does
 
-## Modules
+- **HTTP Listener (Port 80)**: Handles unencrypted traffic with configurable actions (redirect to HTTPS, forward to target group, or return fixed response)
+- **HTTPS Listener (Port 443)**: Handles encrypted traffic with SSL/TLS termination using ACM certificates
+- **Listener Rules**: Implements path-based and host-based routing for microservices and multi-tenant architectures
 
-No modules.
+## Key Features
 
-## Resources
+- Automatic HTTP to HTTPS redirect when certificates are provided
+- Modern TLS 1.3 security policy support
+- Multiple action types: forward, redirect, fixed-response
+- Priority-based rule evaluation for complex routing scenarios
+- Support for maintenance pages via fixed-response actions
+- Comprehensive condition types: path-pattern, host-header, http-header, http-request-method, query-string, source-ip
 
-| Name | Type |
-|------|------|
-| [aws_lb_listener.http](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb_listener) | resource |
-| [aws_lb_listener.https](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb_listener) | resource |
-| [aws_lb_listener_rule.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb_listener_rule) | resource |
+## Module Position
 
-## Inputs
+This module sits between the ALB module and target groups in the dependency chain:
+```
+VPC → ALB → Target Groups → **Listeners** → Application
+```
 
-| Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
-| <a name="input_alb_arn"></a> [alb\_arn](#input\_alb\_arn) | ARN of the Application Load Balancer | `string` | n/a | yes |
-| <a name="input_common_tags"></a> [common\_tags](#input\_common\_tags) | Common tags to apply to all resources | `map(string)` | `{}` | no |
-| <a name="input_component"></a> [component](#input\_component) | Component name for resource identification | `string` | n/a | yes |
-| <a name="input_environment"></a> [environment](#input\_environment) | Environment name (e.g., production, staging) | `string` | n/a | yes |
-| <a name="input_listener_rules"></a> [listener\_rules](#input\_listener\_rules) | Map of listener rules for path-based and host-based routing | <pre>map(object({<br/>    listener_protocol = string<br/>    priority          = number<br/>    conditions = list(object({<br/>      type             = string<br/>      values           = list(string)<br/>      http_header_name = optional(string)<br/>    }))<br/>    action = object({<br/>      type             = string<br/>      target_group_arn = optional(string)<br/>      redirect         = optional(map(string))<br/>      fixed_response   = optional(map(string))<br/>    })<br/>  }))</pre> | `{}` | no |
-| <a name="input_listeners"></a> [listeners](#input\_listeners) | Listener configurations for HTTP and HTTPS | <pre>object({<br/>    http = object({<br/>      enabled  = bool<br/>      port     = number<br/>      protocol = string<br/>      default_action = object({<br/>        type             = string<br/>        target_group_arn = optional(string)<br/>        redirect         = optional(map(string))<br/>        fixed_response   = optional(map(string))<br/>      })<br/>    })<br/>    https = object({<br/>      enabled         = bool<br/>      port            = number<br/>      protocol        = string<br/>      ssl_policy      = string<br/>      certificate_arn = optional(string)<br/>      default_action = object({<br/>        type             = string<br/>        target_group_arn = optional(string)<br/>        redirect         = optional(map(string))<br/>        fixed_response   = optional(map(string))<br/>      })<br/>    })<br/>  })</pre> | n/a | yes |
-| <a name="input_region"></a> [region](#input\_region) | AWS region where resources will be created | `string` | n/a | yes |
+## Common Use Cases
 
-## Outputs
+- Redirecting all HTTP traffic to HTTPS for security
+- Routing `/api/*` paths to backend API target groups
+- Host-based routing for multi-tenant applications (app1.example.com vs app2.example.com)
+- Serving maintenance pages during deployments
+- IP-based access control via source-ip conditions
+- Header-based routing for A/B testing or canary deployments
 
-| Name | Description |
-|------|-------------|
-| <a name="output_http_listener_arn"></a> [http\_listener\_arn](#output\_http\_listener\_arn) | ARN of the HTTP listener |
-| <a name="output_https_listener_arn"></a> [https\_listener\_arn](#output\_https\_listener\_arn) | ARN of the HTTPS listener |
-| <a name="output_listener_rule_arns"></a> [listener\_rule\_arns](#output\_listener\_rule\_arns) | Map of listener rule names to their ARNs |
-| <a name="output_listener_rule_ids"></a> [listener\_rule\_ids](#output\_listener\_rule\_ids) | Map of listener rule names to their IDs |
-<!-- END_TF_DOCS -->
+## Testing & Validation
+
+- **Terraform Tests**: Comprehensive test suite covering HTTP/HTTPS listeners, redirect actions, forward actions, fixed responses, path-based routing, and host-based routing
+- **Run Tests**: `terraform test` from the module directory
+- **Variable Validation**: Type-safe configuration with optional attributes for flexible listener and rule definitions
+- **Security Scanning**: Includes tfsec and Checkov skip annotations with justifications for intentional HTTP listener usage

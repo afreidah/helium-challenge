@@ -1,45 +1,50 @@
-<!-- BEGIN_TF_DOCS -->
-## Requirements
+# IAM Role Module
 
-| Name | Version |
-|------|---------|
-| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.0 |
-| <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 5.0 |
+## Overview
 
-## Providers
+Creates AWS IAM roles with configurable trust policies, managed policy attachments, inline policies, and optional EC2 instance profiles. Designed for centralized role configuration in root.hcl with automatic environment-based naming and consistent deployment across environments. Supports any AWS service principal including EKS, Lambda, ECS, and cross-account access patterns.
 
-| Name | Version |
-|------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 5.100.0 |
+## What It Does
 
-## Modules
+- **IAM Role**: Identity with trust policy defining who/what can assume the role
+- **Managed Policy Attachments**: AWS managed or customer managed policies granting specific permissions
+- **Inline Policies**: Policies embedded directly in the role (non-reusable)
+- **Instance Profile**: Optional EC2 instance profile for attaching role to instances (EKS nodes, EC2)
 
-No modules.
+## Key Features
 
-## Resources
+- Centralized role configuration via `role_config` object from root.hcl
+- Automatic name prefixing with environment (`${environment}-${name_suffix}`)
+- Multiple managed policy attachments with `for_each` iteration
+- Multiple inline policies with `for_each` iteration
+- Conditional instance profile creation (`create_instance_profile` flag)
+- Supports any AWS service principal (eks.amazonaws.com, ec2.amazonaws.com, lambda.amazonaws.com, ecs-tasks.amazonaws.com)
+- Supports cross-account access with AWS principal ARNs
+- Consistent tagging with automatic Name tag generation
+- JSON trust policy validation via `assume_role_policy`
 
-| Name | Type |
-|------|------|
-| [aws_iam_instance_profile.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_instance_profile) | resource |
-| [aws_iam_role.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
-| [aws_iam_role_policy_attachment.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
+## Module Position
 
-## Inputs
+This module provides the identity and permissions layer for AWS resources:
+```
+**IAM Role** → Assume Role → AWS Service/User → Access AWS Resources
+```
 
-| Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
-| <a name="input_environment"></a> [environment](#input\_environment) | Environment name (e.g., production, staging, development) | `string` | n/a | yes |
-| <a name="input_region"></a> [region](#input\_region) | AWS region where resources will be created | `string` | n/a | yes |
-| <a name="input_role_config"></a> [role\_config](#input\_role\_config) | IAM role configuration from root.hcl containing name, trust policy, and managed policies | <pre>object({<br/>    name_suffix             = string<br/>    description             = string<br/>    assume_role_policy      = string<br/>    policy_arns             = list(string)<br/>    create_instance_profile = bool<br/>  })</pre> | n/a | yes |
-| <a name="input_tags"></a> [tags](#input\_tags) | Tags to apply to IAM role | `map(string)` | `{}` | no |
+## Common Use Cases
 
-## Outputs
+- EKS Cluster Roles: Control plane service permissions
+- EKS Node Roles: Worker node permissions with instance profile
+- Lambda Execution Roles: Grant Lambda function AWS API access
+- ECS Task Roles: Container application permissions
+- Cross-Account Roles: Enable multi-account architectures
+- Service Roles: Allow AWS services to act on your behalf
+- SSM-enabled roles: Session Manager access without SSH keys
+- Custom roles with inline policies for specific use cases
 
-| Name | Description |
-|------|-------------|
-| <a name="output_instance_profile_arn"></a> [instance\_profile\_arn](#output\_instance\_profile\_arn) | ARN of the instance profile (if created) |
-| <a name="output_instance_profile_name"></a> [instance\_profile\_name](#output\_instance\_profile\_name) | Name of the instance profile (if created) |
-| <a name="output_role_arn"></a> [role\_arn](#output\_role\_arn) | ARN of the IAM role |
-| <a name="output_role_id"></a> [role\_id](#output\_role\_id) | ID of the IAM role |
-| <a name="output_role_name"></a> [role\_name](#output\_role\_name) | Name of the IAM role |
-<!-- END_TF_DOCS -->
+## Testing & Validation
+
+- **Terraform Tests**: Focused test suite covering name interpolation (`${environment}-${name_suffix}`), tag merging with automatic Name tag, multiple policy attachment counts (0, 1, 3+ policies), conditional instance profile creation (created/not created based on flag), instance profile naming matches role name, trust policy validation (EKS service principal, sts:AssumeRole action), and output validation (role_name, instance_profile_name null/non-null based on flag)
+- **Run Tests**: `terraform test` from the module directory
+- **Variable Validation**: Environment must be one of (production/staging/development/prod/stage/dev), region format validation (us-east-1 pattern), name_suffix length (1-50 chars), description length (1-1000 chars), tag key/value length limits (128/256 chars)
+- **Centralized Configuration**: Role definitions in root.hcl allow easy template reuse across environments
+- **Inline vs Managed Policies**: Use inline policies for role-specific permissions, managed policies for shared permissions across roles

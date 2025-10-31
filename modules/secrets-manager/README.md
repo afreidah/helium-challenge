@@ -1,122 +1,47 @@
 # Secrets Manager Module
 
-Bare-bones AWS Secrets Manager module for storing and managing sensitive credentials.
+## Overview
 
-## Features
+Creates AWS Secrets Manager secrets with optional automatic rotation for RDS databases. Secrets are encrypted using KMS and support versioning, recovery windows, and cross-region replication. The module provides zero-downtime rotation using AWS Lambda functions that update both database passwords and secret values simultaneously.
 
-- ✅ KMS encryption for secret values
-- ✅ Automatic rotation support (requires Lambda)
-- ✅ Version management with staging labels
-- ✅ Recovery window for accidental deletion
-- ✅ Optional IAM read policy generation
+## What It Does
 
-## Usage
+- **Secret**: Container for secret versions and metadata with KMS encryption
+- **Secret Version**: Actual secret value (JSON or plaintext) with staging labels for version management
+- **Rotation Configuration**: Optional Lambda-based rotation schedule for automatic credential rotation
+- **IAM Read Policy**: Optional read access policy for service principals (EKS pods, Lambda functions)
 
-### Basic Secret
+## Key Features
 
-```hcl
-module "secrets" {
-  source = "./modules/secrets-manager"
+- KMS encryption for all secret values
+- Automatic rotation for RDS, Redshift, and DocumentDB credentials (requires Lambda function with VPC access)
+- Version management with staging labels (AWSCURRENT, AWSPENDING)
+- Recovery window for accidental deletion (7-30 days, minimum 7 days required)
+- Cross-region replication for disaster recovery scenarios
+- Optional IAM read policy generation for service principals
+- Map-based secret creation (multiple secrets in single module call)
+- Tag merging with automatic Name tag from secret path
+- Policy name format: `{prefix}-read-secrets` for IAM policy
 
-  secrets = {
-    "/production/database/credentials" = {
-      description   = "Aurora PostgreSQL credentials"
-      secret_string = jsonencode({
-        username = "dbadmin"
-        password = "SecurePassword123!"
-        host     = "aurora.cluster-xyz.us-east-1.rds.amazonaws.com"
-        port     = 5432
-      })
-      kms_key_id = aws_kms_key.main.id
-    }
-  }
+## Module Position
 
-  tags = {
-    Environment = "production"
-    ManagedBy   = "Terraform"
-  }
-}
+This module provides encrypted credential storage for applications and databases:
+```
+**Secrets Manager** → EKS Pods/Lambda Functions → RDS/Application Configuration
 ```
 
-### With Automatic Rotation
+## Common Use Cases
 
-```hcl
-module "secrets" {
-  source = "./modules/secrets-manager"
+- Aurora PostgreSQL database credentials with automatic rotation
+- RDS master passwords with Lambda-based rotation
+- Application API keys and configuration secrets
+- Service account credentials for external APIs
+- Microservices configuration with per-environment secrets
+- EKS pod IAM policies for reading application secrets
 
-  secrets = {
-    "/production/rds/master" = {
-      description         = "RDS master password with rotation"
-      secret_string       = jsonencode({ username = "admin", password = "initial" })
-      kms_key_id          = aws_kms_key.main.id
-      rotation_lambda_arn = aws_lambda_function.rotate_secret.arn
-      rotation_days       = 30
-    }
-  }
-}
-```
+## Testing & Validation
 
-### With IAM Read Policy
-
-```hcl
-module "secrets" {
-  source = "./modules/secrets-manager"
-
-  secrets = {
-    "/production/app/config" = {
-      description   = "Application secrets"
-      secret_string = jsonencode({ api_key = "abc123" })
-    }
-  }
-
-  create_read_policy = true
-  policy_name_prefix = "production-app"
-  kms_key_arn        = aws_kms_key.main.arn
-}
-
-# Attach policy to EKS pod role
-resource "aws_iam_role_policy_attachment" "app_secrets" {
-  role       = aws_iam_role.app_pod.name
-  policy_arn = module.secrets.read_policy_arn
-}
-```
-
-## Inputs
-
-| Name | Description | Type | Default | Required |
-|------|-------------|------|---------|----------|
-| secrets | Map of secrets to create | `map(object)` | `{}` | no |
-| create_read_policy | Create IAM policy for reading secrets | `bool` | `false` | no |
-| policy_name_prefix | Prefix for IAM policy name | `string` | `"secretsmanager"` | no |
-| kms_key_arn | KMS key ARN for IAM policy | `string` | `"*"` | no |
-| tags | Tags to apply to all secrets | `map(string)` | `{}` | no |
-
-### Secret Object
-
-```hcl
-{
-  description             = optional(string)
-  secret_string           = string
-  kms_key_id              = optional(string)
-  recovery_window_in_days = optional(number, 30)
-  rotation_lambda_arn     = optional(string)
-  rotation_days           = optional(number, 30)
-}
-```
-
-## Outputs
-
-| Name | Description |
-|------|-------------|
-| secret_arns | Map of secret ARNs |
-| secret_ids | Map of secret IDs |
-| secret_versions | Map of secret version IDs |
-| read_policy_arn | ARN of IAM read policy (if created) |
-| read_policy_name | Name of IAM read policy (if created) |
-
-## Notes
-
-- Secrets have a minimum 7-day recovery window before permanent deletion
-- Secret values are ignored after initial creation (use AWS Console or CLI to update)
-- Rotation requires a Lambda function with VPC access to the database
-- KMS key must allow `kms:Decrypt` for principals reading the secret
+- **Terraform Tests**: Comprehensive test suite covering basic secret creation (secret and version resources with default 30-day recovery window), multiple secrets (3 independent secrets with different configurations), custom recovery window (7-day minimum), KMS encryption (secret using specified KMS key), rotation enabled (rotation resource created when Lambda ARN provided with 30-day schedule), rotation disabled (no rotation resource when Lambda ARN is null), mixed rotation (selective rotation on subset of secrets), IAM policy not created by default (create_read_policy=false), IAM policy creation (policy with name pattern `{prefix}-read-secrets`), tag merging (Environment and Team tags merged with Name tag), empty secrets map (no resources created)
+- **Run Tests**: `terraform test` from the module directory
+- **Variable Validation**: Extensive validation including recovery window range (7-30 days), rotation days range (1-1000 days when specified), policy name prefix format (alphanumeric and +=,.@_-), KMS key ARN format validation
+- **Test Focus**: Module logic and conditional resource creation (not simple variable passthrough)

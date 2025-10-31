@@ -1,45 +1,48 @@
-<!-- BEGIN_TF_DOCS -->
-## Requirements
+# KMS Module
 
-| Name | Version |
-|------|---------|
-| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.0 |
-| <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 5.0 |
+## Overview
 
-## Providers
+Creates AWS Key Management Service (KMS) customer managed keys with automatic rotation, configurable deletion protection, and optional alias support for encryption operations across AWS services. Provides full control over key lifecycle and access policies with CloudTrail audit logging for compliance.
 
-| Name | Version |
-|------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 5.100.0 |
+## What It Does
 
-## Modules
+- **KMS Customer Managed Key**: Encryption key for data protection with configurable rotation and deletion windows
+- **KMS Alias**: Optional human-readable alias for easier key reference in applications and IAM policies
+- **Key Rotation**: Automatic annual rotation when enabled (transparent to applications using the key)
+- **Deletion Protection**: Minimum 7-day waiting period before deletion to prevent accidental key loss
 
-No modules.
+## Key Features
 
-## Resources
+- Customer managed keys with full lifecycle control
+- Automatic key rotation enabled by default for enhanced security
+- Configurable deletion window (7-30 days) for accidental deletion protection
+- Custom key policy support for fine-grained access control
+- Optional alias for easier key reference in code and policies
+- CloudTrail audit logging for all key usage and management operations
+- Multi-region key support when configured
+- Checkov security scanner skip for rotation (controlled by variable)
 
-| Name | Type |
-|------|------|
-| [aws_kms_alias.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/kms_alias) | resource |
-| [aws_kms_key.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/kms_key) | resource |
+## Module Position
 
-## Inputs
+This module provides encryption keys used by multiple AWS services:
+```
+**KMS Keys** → RDS/EBS/S3/Secrets Manager/Parameter Store/CloudWatch Logs
+```
 
-| Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
-| <a name="input_alias_name"></a> [alias\_name](#input\_alias\_name) | KMS key alias name (without 'alias/' prefix) | `string` | `null` | no |
-| <a name="input_deletion_window_in_days"></a> [deletion\_window\_in\_days](#input\_deletion\_window\_in\_days) | Duration in days before key deletion | `number` | `30` | no |
-| <a name="input_description"></a> [description](#input\_description) | Description of the KMS key | `string` | n/a | yes |
-| <a name="input_enable_key_rotation"></a> [enable\_key\_rotation](#input\_enable\_key\_rotation) | Enable automatic key rotation | `bool` | `true` | no |
-| <a name="input_policy"></a> [policy](#input\_policy) | KMS key policy (JSON) | `string` | `null` | no |
-| <a name="input_tags"></a> [tags](#input\_tags) | Tags for the KMS key | `map(string)` | `{}` | no |
+## Common Use Cases
 
-## Outputs
+- EBS volume encryption for EC2 instances
+- S3 bucket server-side encryption
+- RDS and Aurora database encryption at rest
+- Secrets Manager secret encryption
+- Parameter Store SecureString encryption
+- CloudWatch Logs encryption
+- Lambda environment variable encryption
+- Cross-account encryption key sharing with custom policies
 
-| Name | Description |
-|------|-------------|
-| <a name="output_alias_arn"></a> [alias\_arn](#output\_alias\_arn) | KMS alias ARN |
-| <a name="output_alias_name"></a> [alias\_name](#output\_alias\_name) | KMS alias name |
-| <a name="output_key_arn"></a> [key\_arn](#output\_key\_arn) | KMS key ARN |
-| <a name="output_key_id"></a> [key\_id](#output\_key\_id) | KMS key ID |
-<!-- END_TF_DOCS -->
+## Testing & Validation
+
+- **Terraform Tests**: Comprehensive test suite covering basic key creation without alias (description, rotation, deletion window, tags, no alias resource, null alias outputs), key with alias (alias creation, name format with 'alias/' prefix, alias name output), rotation disabled configuration, custom deletion window (7 days minimum), explicit key policy (policy content validation with kms:Encrypt and kms:Decrypt), tag verification (multiple custom tags), output shape validation both with and without alias
+- **Run Tests**: `terraform test` from the module directory
+- **Variable Validation**: Type-safe configuration with optional alias_name for conditional alias creation
+- **Checkov Skip**: CKV_AWS_7 skipped for key rotation (controlled by enable_key_rotation variable with default true)

@@ -39,9 +39,6 @@ dependency "general_networking" {
 inputs = {
   vpc_id = dependency.general_networking.outputs.vpc_id
 
-  # Target groups configuration from root.hcl or environment override
-  # target_groups will be provided by environment-specific inputs merge
-
-  # Core identity from root (inherited automatically via root.hcl inputs)
-  # environment, region, component, common_tags
+  # Target groups configuration from root.hcl
+  target_groups = local.root.inputs.target_groups_config
 }

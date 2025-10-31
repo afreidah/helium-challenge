@@ -31,30 +31,3 @@ include "root" {
 include "alb_target_groups" {
   path = "${get_repo_root()}/_env_helpers/alb-target-groups.hcl"
 }
-
-# -----------------------------------------------------------------------------
-# Environment-Specific Target Groups
-# -----------------------------------------------------------------------------
-
-inputs = {
-  target_groups = {
-    app = {
-      port                 = 8080
-      protocol             = "HTTP"
-      target_type          = "instance"
-      deregistration_delay = 30
-      health_check = {
-        enabled             = true
-        healthy_threshold   = 2
-        interval            = 30
-        matcher             = "200"
-        path                = "/health"
-        port                = "traffic-port"
-        protocol            = "HTTP"
-        timeout             = 5
-        unhealthy_threshold = 2
-      }
-      stickiness = null
-    }
-  }
-}

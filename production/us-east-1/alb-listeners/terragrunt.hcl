@@ -33,35 +33,3 @@ include "root" {
 include "alb_listeners" {
   path = "${get_repo_root()}/_env_helpers/alb-listeners.hcl"
 }
-
-# -----------------------------------------------------------------------------
-# Environment-Specific Overrides (Optional)
-# -----------------------------------------------------------------------------
-# Uncomment and modify to override defaults from root.hcl
-#
-# inputs = {
-#   listeners = {
-#     https = {
-#       certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/..."
-#       default_action = {
-#         type             = "forward"
-#         target_group_arn = dependency.alb_target_groups.outputs.target_group_arns["app"]
-#       }
-#     }
-#   }
-#   
-#   listener_rules = {
-#     api = {
-#       listener_protocol = "HTTPS"
-#       priority          = 100
-#       conditions = [{
-#         type   = "path-pattern"
-#         values = ["/api/*"]
-#       }]
-#       action = {
-#         type             = "forward"
-#         target_group_arn = dependency.alb_target_groups.outputs.target_group_arns["api"]
-#       }
-#     }
-#   }
-# }

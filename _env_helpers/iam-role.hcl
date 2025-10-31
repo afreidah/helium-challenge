@@ -53,8 +53,8 @@ locals {
 # This avoids Terragrunt evaluation issues with conditional dependencies
 
 dependency "eks" {
-  config_path = local.needs_irsa ? "../eks-cluster" : "${get_repo_root()}"
-  
+  config_path = local.needs_irsa ? "../eks-cluster" : "../general-networking"
+
   # Skip outputs if not needed to avoid loading state
   skip_outputs = !local.needs_irsa
 

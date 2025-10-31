@@ -1,41 +1,44 @@
-<!-- BEGIN_TF_DOCS -->
-## Requirements
+# ALB Target Groups Module
 
-No requirements.
+## Overview
 
-## Providers
+Creates and configures ALB target groups that serve as backend pools for routing traffic to application instances or IP addresses. Target groups are independent of the ALB and contain health check and routing configuration for specific backend services.
 
-| Name | Version |
-|------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.18.0 |
+## What It Does
 
-## Modules
+- **Target Groups**: Backend pools with independent configuration for different services or applications
+- **Health Checks**: Per-target-group health monitoring with configurable thresholds and intervals
+- **Session Stickiness**: Optional cookie-based session affinity for stateful applications
+- **Graceful Shutdown**: Deregistration delay allows in-flight requests to complete before removing targets
 
-No modules.
+## Key Features
 
-## Resources
+- Support for multiple target types: `instance` (EC2), `ip` (EKS pods with AWS VPC CNI), `lambda`, `alb`
+- Independent health check configuration per target group
+- Automatic name truncation to meet 32-character AWS limit
+- Configurable deregistration delays for zero-downtime deployments
+- Session persistence with customizable cookie duration
+- `create_before_destroy` lifecycle for safe updates
 
-| Name | Type |
-|------|------|
-| [aws_lb_target_group.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb_target_group) | resource |
+## Module Position
 
-## Inputs
+This module creates target groups that bridge the ALB and your applications:
+```
+VPC → ALB → **Target Groups** → EKS Nodes → Target Registration → Listeners
+```
 
-| Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
-| <a name="input_common_tags"></a> [common\_tags](#input\_common\_tags) | Common tags to apply to all resources | `map(string)` | `{}` | no |
-| <a name="input_component"></a> [component](#input\_component) | Component name for resource identification | `string` | n/a | yes |
-| <a name="input_environment"></a> [environment](#input\_environment) | Environment name (e.g., production, staging) | `string` | n/a | yes |
-| <a name="input_region"></a> [region](#input\_region) | AWS region where resources will be created | `string` | n/a | yes |
-| <a name="input_target_groups"></a> [target\_groups](#input\_target\_groups) | Map of target group configurations | <pre>map(object({<br/>    port                 = number<br/>    protocol             = string<br/>    target_type          = string<br/>    deregistration_delay = number<br/>    health_check = object({<br/>      enabled             = bool<br/>      healthy_threshold   = number<br/>      interval            = number<br/>      matcher             = string<br/>      path                = string<br/>      port                = string<br/>      protocol            = string<br/>      timeout             = number<br/>      unhealthy_threshold = number<br/>    })<br/>    stickiness = optional(object({<br/>      enabled         = bool<br/>      type            = string<br/>      cookie_duration = number<br/>    }))<br/>  }))</pre> | `{}` | no |
-| <a name="input_vpc_id"></a> [vpc\_id](#input\_vpc\_id) | VPC ID where target groups will be created | `string` | n/a | yes |
+## Common Use Cases
 
-## Outputs
+- Creating separate target groups for frontend and backend services
+- EKS pod routing using `ip` target type with AWS VPC CNI
+- Session-based applications requiring sticky sessions
+- Blue/green deployments with multiple target groups
+- Microservices with different health check requirements
+- Progressive traffic shifting between target groups
 
-| Name | Description |
-|------|-------------|
-| <a name="output_target_group_arn_suffixes"></a> [target\_group\_arn\_suffixes](#output\_target\_group\_arn\_suffixes) | Map of target group names to their ARN suffixes for CloudWatch metrics |
-| <a name="output_target_group_arns"></a> [target\_group\_arns](#output\_target\_group\_arns) | Map of target group names to their ARNs |
-| <a name="output_target_group_ids"></a> [target\_group\_ids](#output\_target\_group\_ids) | Map of target group names to their IDs |
-| <a name="output_target_group_names"></a> [target\_group\_names](#output\_target\_group\_names) | Map of target group keys to their actual names |
-<!-- END_TF_DOCS -->
+## Testing & Validation
+
+- **Terraform Tests**: Comprehensive test suite covering instance/IP target types, health checks, session stickiness, multiple target groups, and name truncation
+- **Run Tests**: `terraform test` from the module directory
+- **Variable Validation**: Type-safe configuration with optional stickiness attribute for flexible target group definitions
+- **Name Handling**: Automatic truncation and validation to ensure compliance with AWS 32-character limit

@@ -280,6 +280,43 @@ locals {
         "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
       ]
     }
+
+    external_secrets = {
+      name_suffix             = "external-secrets"
+      description             = "IAM role for External Secrets Operator via IRSA"
+      create_instance_profile = false
+      
+      # Placeholder - will be overridden in environment-level terragrunt.hcl
+      assume_role_policy = "PLACEHOLDER"
+      
+      # Inline policy for Secrets Manager access
+      inline_policies = {
+        secrets_manager_access = jsonencode({
+          Version = "2012-10-17"
+          Statement = [
+            {
+              Sid    = "SecretsManagerReadAccess"
+              Effect = "Allow"
+              Action = [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret"
+              ]
+              Resource = [
+                "arn:aws:secretsmanager:*:*:secret:/${local.environment}/aurora/*",
+                "arn:aws:secretsmanager:*:*:secret:/${local.environment}/app/*"
+              ]
+            },
+            {
+              Sid      = "SecretsManagerListAccess"
+              Effect   = "Allow"
+              Action   = ["secretsmanager:ListSecrets"]
+              Resource = ["*"]
+            }
+          ]
+        })
+      }
+      policy_arns = []
+    }
   }
 
   # -----------------------------------------------------------------------------

@@ -1,8 +1,8 @@
 # -----------------------------------------------------------------------------
-# IAM ROLE - EKS CLUSTER
+# IAM ROLE - EXTERNAL SECRETS OPERATOR
 # -----------------------------------------------------------------------------
-# Creates IAM role for the EKS cluster control plane with permissions to
-# manage cluster resources and integrate with AWS services.
+# Creates IAM role for External Secrets Operator using IRSA to access
+# AWS Secrets Manager. Trust policy dynamically constructed from EKS OIDC.
 # -----------------------------------------------------------------------------
 
 include "root" {

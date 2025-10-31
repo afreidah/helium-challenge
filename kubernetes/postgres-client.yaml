@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-client-sa
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/production-app-secrets-read
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: postgres-client
+spec:
+  serviceAccountName: postgres-client-sa
+  containers:
+  - name: postgres
+    image: postgres:15-alpine
+    command: ['sleep', '3600']
+    env:
+    - name: PGHOST
+      valueFrom:
+        secretKeyRef:
+          name: aurora-credentials
+          key: host
+    - name: PGUSER
+      valueFrom:
+        secretKeyRef:
+          name: aurora-credentials
+          key: username
+    - name: PGPASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: aurora-credentials
+          key: password
+    - name: PGDATABASE
+      value: "postgres"

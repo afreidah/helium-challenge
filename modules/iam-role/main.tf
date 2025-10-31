@@ -79,6 +79,20 @@ resource "aws_iam_role_policy_attachment" "this" {
 }
 
 # -----------------------------------------------------------------------------
+# INLINE POLICIES
+# -----------------------------------------------------------------------------
+# Inline policies attached directly to the role
+# Used when policies don't need to be shared across roles
+
+resource "aws_iam_role_policy" "inline" {
+  for_each = var.role_config.inline_policies
+
+  name   = each.key
+  role   = aws_iam_role.this.id
+  policy = each.value
+}
+
+# -----------------------------------------------------------------------------
 # INSTANCE PROFILE (EC2)
 # -----------------------------------------------------------------------------
 # Instance profile for attaching role to EC2 instances (EKS nodes)

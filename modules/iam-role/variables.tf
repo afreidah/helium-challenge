@@ -58,6 +58,7 @@ variable "role_config" {
     assume_role_policy      = string
     policy_arns             = list(string)
     create_instance_profile = bool
+    inline_policies         = optional(map(string), {})
   })
 
   validation {

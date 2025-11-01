@@ -188,6 +188,7 @@ docker-ci: ## Run CI checks inside Docker container (mimics GitHub Actions)
 	@docker build -t helium-ci:latest .
 	@echo "$(BLUE)Running CI checks in container...$(NC)"
 	@docker run --rm \
+		-e HOME=/tmp \
 		-e AWS_ACCESS_KEY_ID \
 		-e AWS_SECRET_ACCESS_KEY \
 		-e AWS_DEFAULT_REGION \

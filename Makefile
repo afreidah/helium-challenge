@@ -191,6 +191,7 @@ docker-ci: ## Run CI checks inside Docker container (mimics GitHub Actions)
 		-e AWS_ACCESS_KEY_ID \
 		-e AWS_SECRET_ACCESS_KEY \
 		-e AWS_DEFAULT_REGION \
+		--user $(shell id -u):$(shell id -g) \
 		-v $(PWD):/workspace \
 		-w /workspace \
 		helium-ci:latest \

@@ -134,5 +134,18 @@ RUN echo "========================================" && \
     echo "Infracost:       $(infracost --version 2>/dev/null || true)" && \
     echo "========================================"
 
+# Create non-root user for security
+# Note: Using standard UID/GID 1000 which matches most development environments
+# The mounted workspace volume should be owned by the host user (typically UID 1000)
+RUN groupadd -r terraform -g 1000 && \
+    useradd -r -u 1000 -g terraform -m -s /bin/bash terraform
+
+# Switch to non-root user
+USER terraform
+
+# Health check to verify tools are accessible
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD terraform version > /dev/null 2>&1 || exit 1
+
 SHELL ["/bin/bash", "-c"]
 CMD ["/bin/bash"]
